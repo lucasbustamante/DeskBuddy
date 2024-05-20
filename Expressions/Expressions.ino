@@ -1,6 +1,10 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <BLEScan.h>
 #include "emotes.h"
 #include "teste.h"
 
@@ -18,21 +22,52 @@ void setup() {
 
   // Limpe o display
   display.clearDisplay();
-  
+
   // Configure o pino do botão como entrada
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  // Inicialize o dispositivo BLE
+  BLEDevice::init("ESP32_BEACON");
+
+  // Configurar o dispositivo como um beacon
+  BLEServer *pServer = BLEDevice::createServer();
+  BLEService *pService = pServer->createService(BLEUUID((uint16_t)0x1812));
+  BLECharacteristic *pCharacteristic = pService->createCharacteristic(
+                                         BLEUUID((uint16_t)0x2A4E),
+                                         BLECharacteristic::PROPERTY_READ |
+                                         BLECharacteristic::PROPERTY_WRITE
+                                       );
+  pService->start();
+  pServer->getAdvertising()->start();
+  Serial.println("Beacon iniciado...");
 }
 
 void loop() {
-  // Verifique o estado do botão
-  int buttonState = digitalRead(BUTTON_PIN);
+  BLEScan* pBLEScan = BLEDevice::getScan();
+  pBLEScan->setActiveScan(true);
+  BLEScanResults foundDevices = pBLEScan->start(1);
 
-  if (buttonState != LOW) {
-    // Botão pressionado
-    sad(0, 0, 75);
+  int maxRSSI = -100; // Valor de RSSI mais baixo inicial
+
+  for (int i = 0; i < foundDevices.getCount(); i++) {
+    BLEAdvertisedDevice device = foundDevices.getDevice(i);
+    if (device.getName() == "ESP32_BEACON") {
+      int rssi = device.getRSSI();
+      if (rssi > maxRSSI) {
+        maxRSSI = rssi; // Atualiza o RSSI máximo encontrado
+      }
+    }
+  }
+
+  // Atualize o rosto na tela OLED com base na intensidade do sinal RSSI
+  if (maxRSSI > -50) {
+    loving(0, 0, 75); // Muito perto
+  } else if (maxRSSI > -70) {
+    happy(0, 0, 75); // Distância média
+  } else if (maxRSSI > -90) {
+    suspicion(0, 0, 75); // Longe
   } else {
-    // Botão não pressionado
-    normal(0, 0, 75);
+    sad(0, 0, 75); // Não encontrado ou muito distante
   }
 
   // Pequeno atraso para debouncing do botão
