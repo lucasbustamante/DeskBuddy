@@ -116,7 +116,3 @@ Estou trabalhando para finalizar um protótipo funcional do DeskBuddy. No futuro
 - **Mais emoções e animações:** Ampliar a gama de expressões faciais do DeskBuddy.
 - **Integração com assistentes virtuais:** Permitir que o DeskBuddy interaja com outros dispositivos inteligentes.
 - **Aprimoramento das interações sociais:** Melhorar a complexidade e a naturalidade das interações entre DeskBuddies.
-
-## Contribuições
-
-Contribuições para o projeto são bem-vindas! Se você tiver ideias, sugestões ou quiser ajudar no desenvolvimento, sinta-se à vontade para abrir uma issue ou enviar um pull request.
