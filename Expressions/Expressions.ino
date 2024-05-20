@@ -1,7 +1,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include "emotes.h" // Inclua o arquivo que contém o array emotes0
+#include "emotes.h"
 #include "teste.h"
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
@@ -10,24 +10,31 @@
 #define OLED_RESET 0  // GPIO0
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
+#define BUTTON_PIN 2 // Pino ao qual o botão está conectado
+
 void setup() {
   // Inicialize a comunicação com o display
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
 
   // Limpe o display
   display.clearDisplay();
+  
+  // Configure o pino do botão como entrada
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
 }
 
 void loop() {
-  // Defina as coordenadas e o tempo de exibição
-  int xx = 0;
-  int yy = 0;
-  int tt = 50; // Tempo em milissegundos
+  // Verifique o estado do botão
+  int buttonState = digitalRead(BUTTON_PIN);
 
-  // Exiba os emotes sequencialmente
+  if (buttonState != LOW) {
+    // Botão pressionado
+    sad(0, 0, 75);
+  } else {
+    // Botão não pressionado
+    normal(0, 0, 75);
+  }
 
-sad(0, 0, 75);
-
-
-
+  // Pequeno atraso para debouncing do botão
+  delay(50);
 }
