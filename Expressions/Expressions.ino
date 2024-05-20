@@ -16,6 +16,10 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 #define BUTTON_PIN 2 // Pino ao qual o botão está conectado
 
+#define MAX_INTERACTION_INTERVAL 280 // Tempo de interação, (1 = 5,4 sec. aproximadamente)
+
+unsigned long lastInteractionTime = 0; // Variável para armazenar o tempo da última interação
+
 void setup() {
   // Inicialize a comunicação com o display
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
@@ -39,10 +43,27 @@ void setup() {
                                        );
   pService->start();
   pServer->getAdvertising()->start();
-  Serial.println("Beacon iniciado...");
+  //Serial.println("Beacon iniciado...");
 }
 
 void loop() {
+  lastInteractionTime++;
+
+  // Verifica se passou muito tempo sem interação
+  if (lastInteractionTime > MAX_INTERACTION_INTERVAL) {
+    sad(0, 0, 75); // Atualiza o rosto para "sad"
+  } else {
+    normal(0, 0, 75); // Rosto normal
+  }
+
+  // Verifica se o botão foi pressionado
+  if (digitalRead(BUTTON_PIN) != LOW) {
+    lastInteractionTime = 0; // Atualiza o tempo da última interação
+    happy(0, 0, 75);
+    delay(50); // Pequeno atraso para evitar detecção múltipla do botão
+  }
+
+  // Escaneia beacons
   BLEScan* pBLEScan = BLEDevice::getScan();
   pBLEScan->setActiveScan(true);
   BLEScanResults foundDevices = pBLEScan->start(1);
@@ -52,9 +73,11 @@ void loop() {
   for (int i = 0; i < foundDevices.getCount(); i++) {
     BLEAdvertisedDevice device = foundDevices.getDevice(i);
     if (device.getName() == "ESP32_BEACON") {
+      suspicion(0, 0, 75); // Longe
       int rssi = device.getRSSI();
       if (rssi > maxRSSI) {
         maxRSSI = rssi; // Atualiza o RSSI máximo encontrado
+        lastInteractionTime = 0; // Atualiza o tempo da última interação
       }
     }
   }
@@ -64,12 +87,5 @@ void loop() {
     loving(0, 0, 75); // Muito perto
   } else if (maxRSSI > -70) {
     happy(0, 0, 75); // Distância média
-  } else if (maxRSSI > -90) {
-    suspicion(0, 0, 75); // Longe
-  } else {
-    sad(0, 0, 75); // Não encontrado ou muito distante
-  }
-
-  // Pequeno atraso para debouncing do botão
-  delay(50);
+  } 
 }

@@ -623,7 +623,7 @@ void loving (int xx, int yy, int tt) {
   display.drawBitmap(xx, yy, emotes160, 128, 64, 1);
   display.display();
   delay(tt);
-  for (int i = 0; i < 15; i++) {
+  for (int i = 0; i < 5; i++) {
       display.clearDisplay();
   display.drawBitmap(xx, yy, emotes161, 128, 64, 1);
   display.display();
