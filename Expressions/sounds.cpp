@@ -1,7 +1,7 @@
 #include "sounds.h"
 #include <Arduino.h>
 
-#define BUZZER_PIN 9 // Pino ao qual o buzzer está conectado
+#define BUZZER_PIN 15 // Pino ao qual o buzzer está conectado
 
 void sounds(int x, int y, int size) {
   // Produz um som grave e irregular para simular um robô bravo
@@ -14,7 +14,6 @@ void sounds(int x, int y, int size) {
   }
   
   // Pausa mais longa para dar a sensação de "respirar"
-  delay(2000); 
 
   // Adicione o código para atualizar o rosto para "suspeita" aqui
   // Exemplo: display.drawBitmap(x, y, suspicionBitmap, size, size, WHITE);

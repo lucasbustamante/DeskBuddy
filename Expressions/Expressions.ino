@@ -10,6 +10,7 @@
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define NAME "Kizmo"
 
 #define OLED_RESET 0  // GPIO0
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -27,11 +28,34 @@ void setup() {
   // Limpe o display
   display.clearDisplay();
 
+    // Exiba o nome por 5 segundos
+// Exiba o nome centralizado na tela
+  display.setTextSize(4);
+  display.setTextColor(SSD1306_WHITE);
+
+  int16_t x1, y1; // Coordenadas do canto superior esquerdo do texto
+  uint16_t w, h;  // Largura e altura do texto
+
+  display.getTextBounds(NAME, 0, 0, &x1, &y1, &w, &h); // Obtenha as dimensões do texto
+
+  int16_t x = (SCREEN_WIDTH - w) / 2; // Calcula a posição x centralizada
+  int16_t y = (SCREEN_HEIGHT - h) / 2; // Calcula a posição y centralizada
+
+  display.setCursor(x, y);
+  display.println(NAME);
+  display.display();
+  delay(5000); // Espera por 5 segundos
+
+  // Limpe o display após 5 segundos
+  display.clearDisplay();
+  display.display();
+  
   // Configure o pino do botão como entrada
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   // Inicialize o dispositivo BLE
-  BLEDevice::init("ESP32_BEACON");
+BLEDevice::init(std::string("DeskBuddy: ") + NAME);
+
 
   // Configurar o dispositivo como um beacon
   BLEServer *pServer = BLEDevice::createServer();
@@ -47,7 +71,9 @@ void setup() {
 }
 
 void loop() {
+if(lastInteractionTime <= MAX_INTERACTION_INTERVAL){
   lastInteractionTime++;
+}
 
   // Verifica se passou muito tempo sem interação
   if (lastInteractionTime > MAX_INTERACTION_INTERVAL) {
@@ -67,12 +93,13 @@ void loop() {
   BLEScan* pBLEScan = BLEDevice::getScan();
   pBLEScan->setActiveScan(true);
   BLEScanResults foundDevices = pBLEScan->start(1);
+  
 
   int maxRSSI = -100; // Valor de RSSI mais baixo inicial
 
   for (int i = 0; i < foundDevices.getCount(); i++) {
     BLEAdvertisedDevice device = foundDevices.getDevice(i);
-    if (device.getName() == "ESP32_BEACON") {
+      if (device.getName().find("DeskBuddy:") != std::string::npos) {
       suspicion(0, 0, 75); // Longe
       int rssi = device.getRSSI();
       if (rssi > maxRSSI) {
