@@ -17,7 +17,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 #define BUTTON_PIN 2 // Pino ao qual o botão está conectado
 
-#define MAX_INTERACTION_INTERVAL 280 // Tempo de interação, (1 = 5,4 sec. aproximadamente)
+#define MAX_INTERACTION_INTERVAL 3 // Tempo de interação, (1 = 5,4 sec. aproximadamente)
 
 unsigned long lastInteractionTime = 0; // Variável para armazenar o tempo da última interação
 
@@ -28,8 +28,7 @@ void setup() {
   // Limpe o display
   display.clearDisplay();
 
-    // Exiba o nome por 5 segundos
-// Exiba o nome centralizado na tela
+  // Exiba o nome por 5 segundos
   display.setTextSize(4);
   display.setTextColor(SSD1306_WHITE);
 
@@ -54,8 +53,7 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   // Inicialize o dispositivo BLE
-BLEDevice::init(std::string("DeskBuddy: ") + NAME);
-
+  BLEDevice::init(String("DeskBuddy: ") + NAME);
 
   // Configurar o dispositivo como um beacon
   BLEServer *pServer = BLEDevice::createServer();
@@ -71,9 +69,9 @@ BLEDevice::init(std::string("DeskBuddy: ") + NAME);
 }
 
 void loop() {
-if(lastInteractionTime <= MAX_INTERACTION_INTERVAL){
-  lastInteractionTime++;
-}
+  if (lastInteractionTime <= MAX_INTERACTION_INTERVAL) {
+    lastInteractionTime++;
+  }
 
   // Verifica se passou muito tempo sem interação
   if (lastInteractionTime > MAX_INTERACTION_INTERVAL) {
@@ -92,14 +90,13 @@ if(lastInteractionTime <= MAX_INTERACTION_INTERVAL){
   // Escaneia beacons
   BLEScan* pBLEScan = BLEDevice::getScan();
   pBLEScan->setActiveScan(true);
-  BLEScanResults foundDevices = pBLEScan->start(1);
-  
+  BLEScanResults* foundDevices = pBLEScan->start(1);
 
   int maxRSSI = -100; // Valor de RSSI mais baixo inicial
 
-  for (int i = 0; i < foundDevices.getCount(); i++) {
-    BLEAdvertisedDevice device = foundDevices.getDevice(i);
-      if (device.getName().find("DeskBuddy:") != std::string::npos) {
+  for (int i = 0; i < foundDevices->getCount(); i++) {
+    BLEAdvertisedDevice device = foundDevices->getDevice(i);
+    if (device.getName().indexOf("DeskBuddy:") != -1) {
       suspicion(0, 0, 75); // Longe
       int rssi = device.getRSSI();
       if (rssi > maxRSSI) {
