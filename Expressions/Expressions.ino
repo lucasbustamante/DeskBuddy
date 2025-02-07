@@ -17,7 +17,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 #define BUTTON_PIN 2 // Pino ao qual o botão está conectado
 
-#define MAX_INTERACTION_INTERVAL 3 // Tempo de interação, (1 = 5,4 sec. aproximadamente)
+#define MAX_INTERACTION_INTERVAL 200 // Tempo de interação, (1 = 5,4 sec. aproximadamente)
 
 unsigned long lastInteractionTime = 0; // Variável para armazenar o tempo da última interação
 
@@ -107,9 +107,9 @@ void loop() {
   }
 
   // Atualize o rosto na tela OLED com base na intensidade do sinal RSSI
-  if (maxRSSI > -50) {
+  /*if (maxRSSI > -50) {
     loving(0, 0, 75); // Muito perto
   } else if (maxRSSI > -70) {
     happy(0, 0, 75); // Distância média
-  } 
+  } */
 }
