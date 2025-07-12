@@ -358,7 +358,7 @@ void suspicion(int xx, int yy, int tt) {
   delay(tt);
 
 }
-/*
+
 void loving (int xx, int yy, int tt) {
       display.clearDisplay();
   display.drawBitmap(xx, yy, emotes77, 128, 64, 1);
@@ -555,7 +555,7 @@ void loving (int xx, int yy, int tt) {
   display.display();
   delay(tt);
   }
-  */
+  
 
   void angry (int xx, int yy, int tt) {
   display.clearDisplay();

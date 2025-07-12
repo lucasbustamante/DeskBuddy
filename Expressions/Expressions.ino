@@ -7,75 +7,55 @@
 #include <BLEScan.h>
 #include "emotes.h"
 #include "teste.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define NAME "Kizmo"
-#define OLED_RESET 0  
+
+#define OLED_RESET 0  // GPIO0
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-#define BUTTON_PIN 2
-#define MAX_INTERACTION_INTERVAL 10  // (1 = aproximadamente 5,4 segundos)
+#define BUTTON_PIN 2 // Pino ao qual o botão está conectado
 
-// Timeout para considerar que não há mais detecção BLE (em milissegundos)
-const unsigned long BLE_DETECTION_TIMEOUT = 2000;
+#define MAX_INTERACTION_INTERVAL 200 // Tempo de interação, (1 = 5,4 sec. aproximadamente)
 
-volatile unsigned long lastInteractionTime = 0;  // Contador de interação
-volatile int globalMaxRSSI = -100;
-volatile unsigned long bleLastDetectedTime = 0;  // Timestamp da última detecção BLE
-BLEScan* pBLEScan;
-
-// Tarefa que realiza a varredura BLE de forma assíncrona
-void scanBLETask(void * parameter) {
-  while (true) {
-    BLEScanResults* foundDevices = pBLEScan->start(1, false);
-    bool detected = false;
-    for (int i = 0; i < foundDevices->getCount(); i++) {
-      BLEAdvertisedDevice device = foundDevices->getDevice(i);
-      if (device.getName().indexOf("DeskBuddy:") != -1) {
-        detected = true;
-        int rssi = device.getRSSI();
-        if (rssi > globalMaxRSSI) {
-          globalMaxRSSI = rssi;
-          lastInteractionTime = 0;  // Reinicia o contador quando há uma detecção forte
-        }
-      }
-    }
-    if (detected) {
-      bleLastDetectedTime = millis();  // Atualiza o timestamp se algum dispositivo for detectado
-    }
-    pBLEScan->clearResults();
-    vTaskDelay(10 / portTICK_PERIOD_MS);
-  }
-}
+unsigned long lastInteractionTime = 0; // Variável para armazenar o tempo da última interação
 
 void setup() {
-  // Inicializa o display OLED e exibe o nome por 5 segundos
+  // Inicialize a comunicação com o display
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+
+  // Limpe o display
   display.clearDisplay();
+
+  // Exiba o nome por 5 segundos
   display.setTextSize(4);
   display.setTextColor(SSD1306_WHITE);
-  
-  int16_t x1, y1;
-  uint16_t w, h;
-  display.getTextBounds(NAME, 0, 0, &x1, &y1, &w, &h);
-  int16_t x = (SCREEN_WIDTH - w) / 2;
-  int16_t y = (SCREEN_HEIGHT - h) / 2;
+
+  int16_t x1, y1; // Coordenadas do canto superior esquerdo do texto
+  uint16_t w, h;  // Largura e altura do texto
+
+  display.getTextBounds(NAME, 0, 0, &x1, &y1, &w, &h); // Obtenha as dimensões do texto
+
+  int16_t x = (SCREEN_WIDTH - w) / 2; // Calcula a posição x centralizada
+  int16_t y = (SCREEN_HEIGHT - h) / 2; // Calcula a posição y centralizada
+
   display.setCursor(x, y);
   display.println(NAME);
   display.display();
-  delay(5000);
-  
+  delay(5000); // Espera por 5 segundos
+
+  // Limpe o display após 5 segundos
   display.clearDisplay();
   display.display();
   
-  // Configura o pino do botão (utilizando INPUT_PULLUP, ligue o botão entre o pino e o GND)
+  // Configure o pino do botão como entrada
   pinMode(BUTTON_PIN, INPUT_PULLUP);
-  
-  // Inicializa o BLE e configura o dispositivo como beacon
+
+  // Inicialize o dispositivo BLE
   BLEDevice::init(String("DeskBuddy: ") + NAME);
+
+  // Configurar o dispositivo como um beacon
   BLEServer *pServer = BLEDevice::createServer();
   BLEService *pService = pServer->createService(BLEUUID((uint16_t)0x1812));
   BLECharacteristic *pCharacteristic = pService->createCharacteristic(
@@ -85,49 +65,51 @@ void setup() {
                                        );
   pService->start();
   pServer->getAdvertising()->start();
-  
-  // Configura o scanner BLE
-  pBLEScan = BLEDevice::getScan();
-  pBLEScan->setActiveScan(true);
-  
-  // Cria a tarefa de scanner BLE na core 1 para não bloquear o loop principal
-  xTaskCreatePinnedToCore(scanBLETask, "scanBLETask", 10000, NULL, 1, NULL, 1);
+  //Serial.println("Beacon iniciado...");
 }
 
 void loop() {
-  // Incrementa o contador de interação (a cada ciclo, por simplicidade)
   if (lastInteractionTime <= MAX_INTERACTION_INTERVAL) {
     lastInteractionTime++;
   }
-  
+
+  // Verifica se passou muito tempo sem interação
+  if (lastInteractionTime > MAX_INTERACTION_INTERVAL) {
+    sad(0, 0, 75); // Atualiza o rosto para "sad"
+  } else {
+    normal(0, 0, 75); // Rosto normal
+  }
+
   // Verifica se o botão foi pressionado
   if (digitalRead(BUTTON_PIN) != LOW) {
-    lastInteractionTime = 0;
-    display.clearDisplay();
-    happy(0, 0, 75);  // Exibe a expressão happy
-    display.display();
-    delay(50);  // Pequeno atraso para evitar múltiplas leituras
-    return;      // Prioriza a ação do botão
+    lastInteractionTime = 0; // Atualiza o tempo da última interação
+    happy(0, 0, 75);
+    delay(50); // Pequeno atraso para evitar detecção múltipla do botão
   }
-  
-  // Se um dispositivo BLE foi detectado recentemente, exibe a expressão suspicious
-  if (millis() - bleLastDetectedTime < BLE_DETECTION_TIMEOUT) {
-    display.clearDisplay();
-    suspicion(0, 0, 75);
-    display.display();
+
+  // Escaneia beacons
+  BLEScan* pBLEScan = BLEDevice::getScan();
+  pBLEScan->setActiveScan(true);
+  BLEScanResults* foundDevices = pBLEScan->start(1);
+
+  int maxRSSI = -100; // Valor de RSSI mais baixo inicial
+
+  for (int i = 0; i < foundDevices->getCount(); i++) {
+    BLEAdvertisedDevice device = foundDevices->getDevice(i);
+    if (device.getName().indexOf("DeskBuddy:") != -1) {
+      suspicion(0, 0, 75); // Longe
+      int rssi = device.getRSSI();
+      if (rssi > maxRSSI) {
+        maxRSSI = rssi; // Atualiza o RSSI máximo encontrado
         lastInteractionTime = 0; // Atualiza o tempo da última interação
-      
-  } else {
-    // Caso contrário, utiliza o contador de interação:
-    // Se passou muito tempo sem interação, exibe sad; senão, exibe normal.
-    display.clearDisplay();
-    if (lastInteractionTime > MAX_INTERACTION_INTERVAL) {
-      sad(0, 0, 75);
-    } else {
-      normal(0, 0, 75);
+      }
     }
-    display.display();
   }
-  
-  delay(100);  // Delay para evitar atualizações excessivamente rápidas
+
+  // Atualize o rosto na tela OLED com base na intensidade do sinal RSSI
+  /*if (maxRSSI > -50) {
+    loving(0, 0, 75); // Muito perto
+  } else if (maxRSSI > -70) {
+    happy(0, 0, 75); // Distância média
+  } */
 }
