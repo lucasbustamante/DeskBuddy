@@ -8,6 +8,72 @@
 
 extern Adafruit_SSD1306 display;
 
+void hectic(int xx, int yy, int tt){
+  //velocidade sugerida 100
+    for (int i = 0; i < 25; i++) {
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes183, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes184, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes185, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes184, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes183, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes28, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes188, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes189, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes190, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes189, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes188, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+    display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes28, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+}
+}
+
 void normal(int xx, int yy, int tt) {
 
   for (int i = 0; i < 25; i++) {
@@ -26,7 +92,6 @@ void normal(int xx, int yy, int tt) {
   display.drawBitmap(xx, yy, emotes2, 128, 64, 1);
   display.display();
   delay(tt);
-
 
   display.clearDisplay();
   display.drawBitmap(xx, yy, emotes3, 128, 64, 1);
@@ -51,12 +116,12 @@ void normal(int xx, int yy, int tt) {
 
 
   display.clearDisplay();
-  display.drawBitmap(xx, yy, emotes7, 128, 64, 1);
+  display.drawBitmap(xx, yy, emotes6, 128, 64, 1);
   display.display();
   delay(tt);
   
   display.clearDisplay();
-  display.drawBitmap(xx, yy, emotes9, 128, 64, 1);
+  display.drawBitmap(xx, yy, emotes4, 128, 64, 1);
   display.display();
   delay(tt);
   
