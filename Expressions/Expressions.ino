@@ -10,14 +10,14 @@
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
-#define NAME "Kizmo"
+#define NAME "kizmo"
 
 #define OLED_RESET 0  // GPIO0
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 #define BUTTON_PIN 2 // Pino ao qual o botão está conectado
 
-#define MAX_INTERACTION_INTERVAL 200 // Tempo de interação, (1 = 5,4 sec. aproximadamente)
+#define MAX_INTERACTION_INTERVAL 1 // Tempo de interação, (1 = 5,4 sec. aproximadamente)
 
 unsigned long lastInteractionTime = 0; // Variável para armazenar o tempo da última interação
 
@@ -88,6 +88,7 @@ void loop() {
   }
 
   // Escaneia beacons
+  //gerando travamento na animação
   BLEScan* pBLEScan = BLEDevice::getScan();
   pBLEScan->setActiveScan(true);
   BLEScanResults* foundDevices = pBLEScan->start(1);
