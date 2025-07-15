@@ -8,64 +8,59 @@
 #include "emotes.h"
 #include "teste.h"
 
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+#define OLED_ADDR 0x3C
+
 #define NAME "kizmo"
+#define BUTTON_PIN 37  // Botão A do M5StickC Plus
 
-#define OLED_RESET 0  // GPIO0
+#define MAX_INTERACTION_INTERVAL 100
+
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-
-#define BUTTON_PIN 2 // Pino ao qual o botão está conectado
-
-#define MAX_INTERACTION_INTERVAL 100 // Tempo de interação, (1 = 5,4 sec. aproximadamente).
-
-unsigned long lastInteractionTime = 0; // Variável para armazenar o tempo da última interação
+unsigned long lastInteractionTime = 0;
 
 void setup() {
-  // Inicialize a comunicação com o display
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  // Configura pinos personalizados para I2C (OLED externo)
+  Wire.begin(32, 33);
 
-  // Limpe o display
+  // Inicializa o display
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println(F("Erro ao inicializar o display OLED"));
+    while (true);
+  }
+
   display.clearDisplay();
-
-  // Exiba o nome por 5 segundos
   display.setTextSize(4);
   display.setTextColor(SSD1306_WHITE);
 
-  int16_t x1, y1; // Coordenadas do canto superior esquerdo do texto
-  uint16_t w, h;  // Largura e altura do texto
-
-  display.getTextBounds(NAME, 0, 0, &x1, &y1, &w, &h); // Obtenha as dimensões do texto
-
-  int16_t x = (SCREEN_WIDTH - w) / 2; // Calcula a posição x centralizada
-  int16_t y = (SCREEN_HEIGHT - h) / 2; // Calcula a posição y centralizada
-
+  int16_t x1, y1;
+  uint16_t w, h;
+  display.getTextBounds(NAME, 0, 0, &x1, &y1, &w, &h);
+  int16_t x = (SCREEN_WIDTH - w) / 2;
+  int16_t y = (SCREEN_HEIGHT - h) / 2;
   display.setCursor(x, y);
   display.println(NAME);
   display.display();
-  delay(5000); // Espera por 5 segundos
-
-  // Limpe o display após 5 segundos
+  delay(5000);
   display.clearDisplay();
   display.display();
-  
-  // Configure o pino do botão como entrada
+
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  // Inicialize o dispositivo BLE
-  BLEDevice::init(String("DeskBuddy: ") + NAME);
+  BLEDevice::init(std::string("DeskBuddy: ") + NAME);
 
-  // Configurar o dispositivo como um beacon
   BLEServer *pServer = BLEDevice::createServer();
   BLEService *pService = pServer->createService(BLEUUID((uint16_t)0x1812));
   BLECharacteristic *pCharacteristic = pService->createCharacteristic(
-                                         BLEUUID((uint16_t)0x2A4E),
-                                         BLECharacteristic::PROPERTY_READ |
-                                         BLECharacteristic::PROPERTY_WRITE
-                                       );
+    BLEUUID((uint16_t)0x2A4E),
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE
+  );
   pService->start();
   pServer->getAdvertising()->start();
-  //Serial.println("Beacon iniciado...");
+
+  Serial.begin(115200);
 }
 
 void loop() {
@@ -73,44 +68,41 @@ void loop() {
     lastInteractionTime++;
   }
 
-  // Verifica se passou muito tempo sem interação
   if (lastInteractionTime > MAX_INTERACTION_INTERVAL) {
-    sad(0, 0, 75); // Atualiza o rosto para "sad"
+    sad(0, 0, 75);
   } else {
-    normal(0, 0, 75); // Rosto normal
+    normal(0, 0, 75);
   }
 
-  // Verifica se o botão foi pressionado
-  if (digitalRead(BUTTON_PIN) != LOW) {
-    lastInteractionTime = 0; // Atualiza o tempo da última interação
+  if (digitalRead(BUTTON_PIN) == LOW) {
+    lastInteractionTime = 0;
     happy(0, 0, 75);
-    delay(50); // Pequeno atraso para evitar detecção múltipla do botão
+    delay(50);
   }
 
-  // Escaneia beacons
-  //gerando travamento na animação
+  // BLE Scan
   BLEScan* pBLEScan = BLEDevice::getScan();
   pBLEScan->setActiveScan(true);
-  BLEScanResults* foundDevices = pBLEScan->start(1);
+  BLEScanResults results = pBLEScan->start(1, false);  // Agora não trava
 
-  int maxRSSI = -100; // Valor de RSSI mais baixo inicial
+  int maxRSSI = -100;
 
-  for (int i = 0; i < foundDevices->getCount(); i++) {
-    BLEAdvertisedDevice device = foundDevices->getDevice(i);
-    if (device.getName().indexOf("DeskBuddy:") != -1) {
-      suspicion(0, 0, 75); // Longe
+  for (int i = 0; i < results.getCount(); i++) {
+    BLEAdvertisedDevice device = results.getDevice(i);
+    if (device.getName().find("DeskBuddy:") != std::string::npos) {
+      suspicion(0, 0, 75);
       int rssi = device.getRSSI();
       if (rssi > maxRSSI) {
-        maxRSSI = rssi; // Atualiza o RSSI máximo encontrado
-        lastInteractionTime = 0; // Atualiza o tempo da última interação
+        maxRSSI = rssi;
+        lastInteractionTime = 0;
       }
     }
   }
 
-  // Atualize o rosto na tela OLED com base na intensidade do sinal RSSI
-  /*if (maxRSSI > -50) {
-    loving(0, 0, 75); // Muito perto
-  } else if (maxRSSI > -70) {
-    happy(0, 0, 75); // Distância média
-  } */
+  // Exemplo de lógica com RSSI:
+  // if (maxRSSI > -50) {
+  //   loving(0, 0, 75);
+  // } else if (maxRSSI > -70) {
+  //   happy(0, 0, 75);
+  // }
 }
