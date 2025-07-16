@@ -15,4 +15,6 @@ void angry(int xx, int yy, int tt);
 
 void happy(int xx, int yy, int tt);
 
+void hectic(int xx, int yy, int tt);
+
 #endif

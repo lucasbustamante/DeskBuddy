@@ -24,7 +24,7 @@ class DeskBuddyHomePage extends StatefulWidget {
 }
 
 class _DeskBuddyHomePageState extends State<DeskBuddyHomePage> {
-  Map<String, int> emocoes = {};
+  Map<String, dynamic> emocoes = {};
   String status = "Pronto";
   bool scanning = false;
   bool running = false;
@@ -85,7 +85,7 @@ class _DeskBuddyHomePageState extends State<DeskBuddyHomePage> {
                   try {
                     var decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
                     setState(() {
-                      emocoes = decoded.map((k, v) => MapEntry(k, v is int ? v : int.parse(v.toString())));
+                      emocoes = decoded;
                       status = "Dados recebidos!";
                     });
                   } catch (e) {
@@ -155,16 +155,36 @@ class _DeskBuddyHomePageState extends State<DeskBuddyHomePage> {
             if (emocoes.isEmpty)
               Text("Nenhuma emoção recebida ainda.", style: TextStyle(fontSize: 18)),
             if (emocoes.isNotEmpty)
-              ...emocoes.entries.map((e) => Padding(
-                padding: EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Text("${capitalize(e.key)}:", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    SizedBox(width: 10),
-                    Text("${e.value}%", style: TextStyle(fontSize: 18)),
-                  ],
-                ),
-              )),
+              ...[
+                if (emocoes.containsKey('dominante'))
+                  Padding(
+                    padding: EdgeInsets.only(bottom: 16),
+                    child: Row(
+                      children: [
+                        Text(
+                          "Emoção no display: ",
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blueAccent),
+                        ),
+                        Text(
+                          capitalize(emocoes['dominante'].toString()),
+                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+                        ),
+                      ],
+                    ),
+                  ),
+                ...emocoes.entries
+                    .where((e) => e.key != 'dominante')
+                    .map((e) => Padding(
+                  padding: EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Text("${capitalize(e.key)}:", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      SizedBox(width: 10),
+                      Text("${e.value}%", style: TextStyle(fontSize: 18)),
+                    ],
+                  ),
+                )),
+              ],
             Spacer(),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
