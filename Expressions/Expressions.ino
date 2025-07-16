@@ -4,8 +4,6 @@
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
-#include <WiFi.h>
-#include <WebServer.h>
 #include <EEPROM.h>
 
 // Definições
@@ -17,7 +15,6 @@
 #define EEPROM_SIZE 64
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-WebServer server(80);
 
 // Emoções (valores iniciais)
 int pctNormal = 50, pctFeliz = 30, pctTriste = 10, pctEntediado = 10, pctBravo = 0, pctApaixonado = 0;
@@ -58,19 +55,6 @@ void saveHumorToEEPROM() {
   EEPROM.write(4, pctBravo);
   EEPROM.write(5, pctApaixonado);
   EEPROM.commit();
-}
-
-// WebServer HTML
-void handleRoot() {
-  String html = "<html><body><h1>Humor do DeskBuddy</h1>";
-  html += "<p>Normal: " + String(pctNormal) + "%</p>";
-  html += "<p>Feliz: " + String(pctFeliz) + "%</p>";
-  html += "<p>Triste: " + String(pctTriste) + "%</p>";
-  html += "<p>Entediado: " + String(pctEntediado) + "%</p>";
-  html += "<p>Bravo: " + String(pctBravo) + "%</p>";
-  html += "<p>Apaixonado: " + String(pctApaixonado) + "%</p>";
-  html += "</body></html>";
-  server.send(200, "text/html", html);
 }
 
 // Função que retorna JSON do humor
@@ -128,7 +112,7 @@ void setup() {
   // BLE Setup
   BLEDevice::init("DeskBuddy");
   BLEServer *pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new MyServerCallbacks()); // Para reanunciar sempre
+  pServer->setCallbacks(new MyServerCallbacks());
 
   BLEService *pService = pServer->createService(SERVICE_UUID);
 
@@ -144,18 +128,11 @@ void setup() {
   pService->start();
   pServer->getAdvertising()->start();
 
-  // Wi-Fi AP
-  WiFi.softAP("DeskBuddy", "12345678");
-  server.on("/", handleRoot);
-  server.begin();
-
   showEmotionsOnDisplay();
 }
 
 unsigned long lastButtonTime = 0;
 void loop() {
-  server.handleClient();
-
   // Atualiza humor pelo botão (exemplo: aumenta "feliz")
   if (digitalRead(BUTTON_PIN) == LOW && (millis() - lastButtonTime > 500)) {
     lastButtonTime = millis();
