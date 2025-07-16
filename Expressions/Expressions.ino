@@ -22,18 +22,27 @@
 #define SERVICE_UUID        "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 #define CHARACTERISTIC_UUID "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
 
+#define MAX_ENCONTRADOS 10
+
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 BLECharacteristic *pCharacteristic;
 
 unsigned long lastInteractionTime = 0;
 unsigned long lastButtonTime = 0;
 
+// Emoções
 int pctNormal = 0, pctFeliz = 70, pctTriste = 0, pctEntediado = 0, pctBravo = 0, pctApaixonado = 0;
 
+// Estado do display
 String estadoDisplay = "";
 unsigned long estadoDisplayTimeout = 0;
 
-// --------- EEPROM INIT ---------
+// Buffer circular dos encontrados
+String encontrados[MAX_ENCONTRADOS];
+int idxEncontrado = 0;
+int countEncontrados = 0;
+
+// ---------- EEPROM sempre inicializa ----------
 void inicializaEEPROMSempre() {
   EEPROM.begin(EEPROM_SIZE);
   EEPROM.write(0, 0);    // normal
@@ -45,7 +54,7 @@ void inicializaEEPROMSempre() {
   EEPROM.commit();
 }
 
-// --------- LOAD/SAVE ---------
+// ---------- LOAD/SAVE ----------
 void loadHumorFromEEPROM() {
   EEPROM.begin(EEPROM_SIZE);
   pctNormal     = EEPROM.read(0);
@@ -66,7 +75,7 @@ void saveHumorToEEPROM() {
   EEPROM.commit();
 }
 
-// --------- BLE JSON ---------
+// ---------- BLE JSON ----------
 String getDominantEmotion() {
   if (estadoDisplay != "" && millis() < estadoDisplayTimeout) return estadoDisplay;
   int humores[6] = {pctNormal, pctFeliz, pctTriste, pctEntediado, pctBravo, pctApaixonado};
@@ -89,12 +98,22 @@ String getHumorJSON() {
   json += "\"entediado\":"  + String(pctEntediado)  + ",";
   json += "\"bravo\":"      + String(pctBravo)      + ",";
   json += "\"apaixonado\":" + String(pctApaixonado) + ",";
-  json += "\"dominante\":\"" + getDominantEmotion() + "\"";
+  json += "\"dominante\":\"" + getDominantEmotion() + "\",";
+  json += "\"nome\":\"" + String(NAME) + "\",";
+  json += "\"encontrados\":[";
+  int n = countEncontrados < MAX_ENCONTRADOS ? countEncontrados : MAX_ENCONTRADOS;
+  for (int i = 0; i < n; i++) {
+    // buffer circular: começa do idxEncontrado se já "deu a volta"
+    int idx = (idxEncontrado + i) % MAX_ENCONTRADOS;
+    json += "\"" + encontrados[idx] + "\"";
+    if (i < n - 1) json += ",";
+  }
+  json += "]";
   json += "}";
   return json;
 }
 
-// --------- DISPLAY ---------
+// ---------- DISPLAY ----------
 void showEmoteOnDisplay() {
   int maxValue = pctNormal, idx = 0;
   int humores[6] = {pctNormal, pctFeliz, pctTriste, pctEntediado, pctBravo, pctApaixonado};
@@ -105,17 +124,17 @@ void showEmoteOnDisplay() {
     }
   }
   switch(idx) {
-    case 0: cry(0,0,75); break;
+    case 0: normal(0,0,75); break;
     case 1: happy(0,0,75); break;
     case 2: sad(0,0,75); break;
-    case 3: cry(0,0,75); break;
+    case 3: hectic(0,0,75); break;
     case 4: angry(0,0,75); break;
     case 5: loving(0,0,75); break;
     default: normal(0,0,75);
   }
 }
 
-// --------- BLE CALLBACK ---------
+// ---------- BLE CALLBACK ----------
 class MyServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
     Serial.println("BLE Conectado");
@@ -152,11 +171,9 @@ void setup() {
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  // ------- EEPROM sempre inicializa ----------
   inicializaEEPROMSempre();
   loadHumorFromEEPROM();
 
-  // ------- BLE ----------
   BLEDevice::init("DeskBuddy");
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
@@ -210,17 +227,46 @@ void loop() {
     }
   }
 
+  // ------------ ENCONTRADOS: BUFFER CIRCULAR -----------
+  // O buffer guarda até 10 nomes, sobrescrevendo quando enche.
+  // Limpa só o que será sobrescrito (não zera a lista toda).
+  // Adiciona apenas nomes únicos nessa rodada.
+
+  // Marca quais nomes já foram vistos nesta rodada
+  String encontradosRodada[MAX_ENCONTRADOS];
+  int encontradosRodadaQtd = 0;
+
   // BLE Scan: detectar outros DeskBuddy
   BLEScan* pBLEScan = BLEDevice::getScan();
   BLEScanResults results = pBLEScan->start(1, false);
 
   int maxRSSI = -100;
   bool foundDeskBuddy = false;
+
   for (int i = 0; i < results.getCount(); i++) {
     BLEAdvertisedDevice device = results.getDevice(i);
-    std::string name = device.getName();
-    if (!name.empty() && name.find("DeskBuddy") != std::string::npos) {
+    std::string nameStd = device.getName();
+    if (!nameStd.empty() && nameStd.find("DeskBuddy") != std::string::npos) {
       foundDeskBuddy = true;
+      String name = String(nameStd.c_str());
+
+      // Não adiciona duplicados na rodada
+      bool jaTem = false;
+      for (int j = 0; j < encontradosRodadaQtd; j++) {
+        if (encontradosRodada[j] == name) {
+          jaTem = true;
+          break;
+        }
+      }
+      if (!jaTem) {
+        // Buffer circular: sobrescreve do início se passar de 10
+        encontrados[idxEncontrado] = name;
+        idxEncontrado = (idxEncontrado + 1) % MAX_ENCONTRADOS;
+        if (countEncontrados < MAX_ENCONTRADOS) countEncontrados++;
+        // Marca nome visto nesta rodada
+        encontradosRodada[encontradosRodadaQtd++] = name;
+      }
+
       int rssi = device.getRSSI();
       if (rssi > maxRSSI) {
         maxRSSI = rssi;
