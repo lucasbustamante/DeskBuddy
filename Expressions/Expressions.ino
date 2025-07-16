@@ -90,6 +90,24 @@ String getDominantEmotion() {
   return String(nomes[idx]);
 }
 
+// Helper para extrair apenas o nome após "DeskBuddy: "
+String extraiNomeDeskBuddy(String full) {
+  int idx = full.indexOf(":");
+  if (idx != -1 && idx + 2 < full.length()) {
+    return full.substring(idx + 2); // pula ": "
+  }
+  return full;
+}
+
+// Helper para verificar se o nome já está em todo o buffer (NUNCA duplica)
+bool jaTemNomeNoBuffer(String nome) {
+  for (int i = 0; i < MAX_ENCONTRADOS; i++) {
+    if (encontrados[i] == nome) return true;
+  }
+  return false;
+}
+
+// ---------- Função de JSON (garante nomes únicos e válidos no array) ----------
 String getHumorJSON() {
   String json = "{";
   json += "\"normal\":"     + String(pctNormal)     + ",";
@@ -101,12 +119,25 @@ String getHumorJSON() {
   json += "\"dominante\":\"" + getDominantEmotion() + "\",";
   json += "\"nome\":\"" + String(NAME) + "\",";
   json += "\"encontrados\":[";
-  int n = countEncontrados < MAX_ENCONTRADOS ? countEncontrados : MAX_ENCONTRADOS;
-  for (int i = 0; i < n; i++) {
-    // buffer circular: começa do idxEncontrado se já "deu a volta"
-    int idx = (idxEncontrado + i) % MAX_ENCONTRADOS;
-    json += "\"" + encontrados[idx] + "\"";
-    if (i < n - 1) json += ",";
+  // Apenas nomes únicos e não-vazios
+  bool first = true;
+  for (int i = 0; i < MAX_ENCONTRADOS; i++) {
+    String nome = encontrados[(idxEncontrado + i) % MAX_ENCONTRADOS];
+    if (nome.length() > 0) {
+      // checa se já existe nesse JSON (até i-1)
+      bool jaIncluido = false;
+      for (int j = 0; j < i; j++) {
+        if (encontrados[(idxEncontrado + j) % MAX_ENCONTRADOS] == nome) {
+          jaIncluido = true;
+          break;
+        }
+      }
+      if (!jaIncluido) {
+        if (!first) json += ",";
+        json += "\"" + nome + "\"";
+        first = false;
+      }
+    }
   }
   json += "]";
   json += "}";
@@ -127,7 +158,7 @@ void showEmoteOnDisplay() {
     case 0: normal(0,0,75); break;
     case 1: happy(0,0,75); break;
     case 2: sad(0,0,75); break;
-    case 3: hectic(0,0,75); break;
+    case 3: cry(0,0,75); break;
     case 4: angry(0,0,75); break;
     case 5: loving(0,0,75); break;
     default: normal(0,0,75);
@@ -227,15 +258,7 @@ void loop() {
     }
   }
 
-  // ------------ ENCONTRADOS: BUFFER CIRCULAR -----------
-  // O buffer guarda até 10 nomes, sobrescrevendo quando enche.
-  // Limpa só o que será sobrescrito (não zera a lista toda).
-  // Adiciona apenas nomes únicos nessa rodada.
-
-  // Marca quais nomes já foram vistos nesta rodada
-  String encontradosRodada[MAX_ENCONTRADOS];
-  int encontradosRodadaQtd = 0;
-
+  // ------------ ENCONTRADOS: BUFFER CIRCULAR ÚNICO, só nome puro, nunca duplica -----------
   // BLE Scan: detectar outros DeskBuddy
   BLEScan* pBLEScan = BLEDevice::getScan();
   BLEScanResults results = pBLEScan->start(1, false);
@@ -248,23 +271,11 @@ void loop() {
     std::string nameStd = device.getName();
     if (!nameStd.empty() && nameStd.find("DeskBuddy") != std::string::npos) {
       foundDeskBuddy = true;
-      String name = String(nameStd.c_str());
-
-      // Não adiciona duplicados na rodada
-      bool jaTem = false;
-      for (int j = 0; j < encontradosRodadaQtd; j++) {
-        if (encontradosRodada[j] == name) {
-          jaTem = true;
-          break;
-        }
-      }
-      if (!jaTem) {
-        // Buffer circular: sobrescreve do início se passar de 10
-        encontrados[idxEncontrado] = name;
+      String nomePuro = extraiNomeDeskBuddy(String(nameStd.c_str()));
+      if (nomePuro.length() > 0 && nomePuro != String(NAME) && !jaTemNomeNoBuffer(nomePuro)) {
+        encontrados[idxEncontrado] = nomePuro;
         idxEncontrado = (idxEncontrado + 1) % MAX_ENCONTRADOS;
         if (countEncontrados < MAX_ENCONTRADOS) countEncontrados++;
-        // Marca nome visto nesta rodada
-        encontradosRodada[encontradosRodadaQtd++] = name;
       }
 
       int rssi = device.getRSSI();
