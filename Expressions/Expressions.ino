@@ -15,7 +15,7 @@
 #define OLED_ADDR 0x3C
 
 #define NAME "kizmo"
-#define BUTTON_PIN 37        // Ajuste conforme seu hardware
+#define BUTTON_PIN 37
 #define EEPROM_SIZE 64
 #define MAX_INTERACTION_INTERVAL 100
 
@@ -28,14 +28,45 @@ BLECharacteristic *pCharacteristic;
 unsigned long lastInteractionTime = 0;
 unsigned long lastButtonTime = 0;
 
-// Porcentagens de humor
-int pctNormal = 50, pctFeliz = 30, pctTriste = 10, pctEntediado = 10, pctBravo = 0, pctApaixonado = 0;
+int pctNormal = 0, pctFeliz = 70, pctTriste = 0, pctEntediado = 0, pctBravo = 0, pctApaixonado = 0;
 
-// Estado atual do display ("" = animação padrão dominante; "suspeito" = animando suspicion)
-String estadoDisplay = "";            // Visível no app via JSON
-unsigned long estadoDisplayTimeout = 0; // Timeout para animação especial (ms)
+String estadoDisplay = "";
+unsigned long estadoDisplayTimeout = 0;
 
-// Determina emoção dominante, respeitando animação especial temporária
+// --------- EEPROM INIT ---------
+void inicializaEEPROMSempre() {
+  EEPROM.begin(EEPROM_SIZE);
+  EEPROM.write(0, 0);    // normal
+  EEPROM.write(1, 70);   // feliz
+  EEPROM.write(2, 0);    // triste
+  EEPROM.write(3, 0);    // entediado
+  EEPROM.write(4, 0);    // bravo
+  EEPROM.write(5, 0);    // apaixonado
+  EEPROM.commit();
+}
+
+// --------- LOAD/SAVE ---------
+void loadHumorFromEEPROM() {
+  EEPROM.begin(EEPROM_SIZE);
+  pctNormal     = EEPROM.read(0);
+  pctFeliz      = EEPROM.read(1);
+  pctTriste     = EEPROM.read(2);
+  pctEntediado  = EEPROM.read(3);
+  pctBravo      = EEPROM.read(4);
+  pctApaixonado = EEPROM.read(5);
+}
+
+void saveHumorToEEPROM() {
+  EEPROM.write(0, pctNormal);
+  EEPROM.write(1, pctFeliz);
+  EEPROM.write(2, pctTriste);
+  EEPROM.write(3, pctEntediado);
+  EEPROM.write(4, pctBravo);
+  EEPROM.write(5, pctApaixonado);
+  EEPROM.commit();
+}
+
+// --------- BLE JSON ---------
 String getDominantEmotion() {
   if (estadoDisplay != "" && millis() < estadoDisplayTimeout) return estadoDisplay;
   int humores[6] = {pctNormal, pctFeliz, pctTriste, pctEntediado, pctBravo, pctApaixonado};
@@ -50,7 +81,6 @@ String getDominantEmotion() {
   return String(nomes[idx]);
 }
 
-// JSON do humor com dominante
 String getHumorJSON() {
   String json = "{";
   json += "\"normal\":"     + String(pctNormal)     + ",";
@@ -64,27 +94,7 @@ String getHumorJSON() {
   return json;
 }
 
-void loadHumorFromEEPROM() {
-  EEPROM.begin(EEPROM_SIZE);
-  pctNormal = EEPROM.read(0);
-  pctFeliz = EEPROM.read(1);
-  pctTriste = EEPROM.read(2);
-  pctEntediado = EEPROM.read(3);
-  pctBravo = EEPROM.read(4);
-  pctApaixonado = EEPROM.read(5);
-}
-
-void saveHumorToEEPROM() {
-  EEPROM.write(0, pctNormal);
-  EEPROM.write(1, pctFeliz);
-  EEPROM.write(2, pctTriste);
-  EEPROM.write(3, pctEntediado);
-  EEPROM.write(4, pctBravo);
-  EEPROM.write(5, pctApaixonado);
-  EEPROM.commit();
-}
-
-// Mostra animação no display conforme o humor dominante
+// --------- DISPLAY ---------
 void showEmoteOnDisplay() {
   int maxValue = pctNormal, idx = 0;
   int humores[6] = {pctNormal, pctFeliz, pctTriste, pctEntediado, pctBravo, pctApaixonado};
@@ -95,17 +105,17 @@ void showEmoteOnDisplay() {
     }
   }
   switch(idx) {
-    case 0: normal(0,0,75); break;
+    case 0: cry(0,0,75); break;
     case 1: happy(0,0,75); break;
     case 2: sad(0,0,75); break;
-    case 3: hectic(0,0,75); break;
+    case 3: cry(0,0,75); break;
     case 4: angry(0,0,75); break;
     case 5: loving(0,0,75); break;
     default: normal(0,0,75);
   }
 }
 
-// BLE: reconectar se desconectar
+// --------- BLE CALLBACK ---------
 class MyServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
     Serial.println("BLE Conectado");
@@ -120,10 +130,8 @@ class MyServerCallbacks: public BLEServerCallbacks {
 void setup() {
   Serial.begin(115200);
 
-  // Inicializa I2C
   Wire.begin(32, 33);
 
-  // Inicializa display
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
     Serial.println(F("Erro ao inicializar o display OLED"));
     while (true);
@@ -142,10 +150,13 @@ void setup() {
   delay(3000);
   display.clearDisplay();
 
-  // Botão
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  // BLE Server (compatível app Flutter)
+  // ------- EEPROM sempre inicializa ----------
+  inicializaEEPROMSempre();
+  loadHumorFromEEPROM();
+
+  // ------- BLE ----------
   BLEDevice::init("DeskBuddy");
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
@@ -155,13 +166,11 @@ void setup() {
     CHARACTERISTIC_UUID,
     BLECharacteristic::PROPERTY_READ
   );
-  loadHumorFromEEPROM();
   pCharacteristic->setValue(getHumorJSON().c_str());
 
   pService->start();
   pServer->getAdvertising()->start();
 
-  // Inicial BLE Scan
   BLEDevice::getScan()->setActiveScan(true);
 
   showEmoteOnDisplay();
@@ -227,7 +236,6 @@ void loop() {
       }
     }
   }
-  // Se não achou outro DeskBuddy, animação padrão pelo humor dominante
   if (!foundDeskBuddy) {
     if (lastInteractionTime <= MAX_INTERACTION_INTERVAL) lastInteractionTime++;
     showEmoteOnDisplay();

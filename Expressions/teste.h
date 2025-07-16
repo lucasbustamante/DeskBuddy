@@ -17,4 +17,8 @@ void happy(int xx, int yy, int tt);
 
 void hectic(int xx, int yy, int tt);
 
+void cry(int xx, int yy, int tt);
+
+void hunger(int xx, int yy, int tt);
+
 #endif
