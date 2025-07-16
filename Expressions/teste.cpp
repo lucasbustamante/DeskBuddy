@@ -76,7 +76,7 @@ void hectic(int xx, int yy, int tt){
 
 void normal(int xx, int yy, int tt) {
 
-  for (int i = 0; i < 25; i++) {
+  for (int i = 0; i < 15; i++) {
   display.clearDisplay();
   display.drawBitmap(xx, yy, emotes0, 128, 64, 1);
   display.display();
@@ -134,6 +134,18 @@ void normal(int xx, int yy, int tt) {
   display.drawBitmap(xx, yy, emotes11, 128, 64, 1);
   display.display();
   delay(tt);
+
+    for (int i = 0; i < 10; i++) {
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes0, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes1, 128, 64, 1);
+  display.display();
+  delay(tt);
+}
   
 }
 
