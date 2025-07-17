@@ -21,4 +21,6 @@ void cry(int xx, int yy, int tt);
 
 void hunger(int xx, int yy, int tt);
 
+void bored(int xx, int yy, int tt);
+
 #endif

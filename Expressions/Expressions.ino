@@ -145,7 +145,7 @@ void showEmoteOnDisplay() {
   } else if (dominante == "triste") {
     sad(0,0,75);
   } else if (dominante == "entediado") {
-    suspicion(0,0,75);
+    bored(0,0,75);
   } else if (dominante == "bravo") {
     angry(0,0,75);
   } else {

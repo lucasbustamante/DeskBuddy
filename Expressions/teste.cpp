@@ -883,3 +883,22 @@ void hunger(int xx, int yy, int tt){
   delay(tt);
 }
 }
+
+
+void bored(int xx, int yy, int tt){
+    for (int i = 0; i < 10; i++) {
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes202, 128, 64, 1);
+  display.display();
+  delay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes203, 128, 64, 1);
+  display.display();
+  delay(tt);
+    }
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes5, 128, 64, 1);
+  display.display();
+  delay(tt);
+}
