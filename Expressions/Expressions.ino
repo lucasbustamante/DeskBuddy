@@ -15,7 +15,7 @@
 #define OLED_ADDR 0x3C
 
 #define NAME "kizmo"
-#define BUTTON_PIN 26           // Botão agora no pino 26
+#define BUTTON_PIN 26
 #define EEPROM_SIZE 64
 #define MAX_INTERACTION_INTERVAL 100
 
@@ -29,10 +29,8 @@ BLECharacteristic *pCharacteristic;
 unsigned long lastInteractionTime = 0;
 unsigned long lastButtonTime = 0;
 
-// Emoções (sempre total 100%)
 int pctFeliz = 70, pctTriste = 10, pctEntediado = 10, pctBravo = 10, pctNormal = 0, pctApaixonado = 0;
 
-// Estado do display
 String estadoDisplay = "";
 unsigned long estadoDisplayTimeout = 0;
 
@@ -41,19 +39,17 @@ String encontrados[MAX_ENCONTRADOS];
 int idxEncontrado = 0;
 int countEncontrados = 0;
 
-// -------- EEPROM sempre inicializa --------
 void inicializaEEPROMSempre() {
   EEPROM.begin(EEPROM_SIZE);
-  EEPROM.write(0, 70);   // felicidade
-  EEPROM.write(1, 10);   // tristeza
-  EEPROM.write(2, 10);   // tédio
-  EEPROM.write(3, 10);   // raiva
-  EEPROM.write(4, 0);    // normal
-  EEPROM.write(5, 0);    // apaixonado
+  EEPROM.write(0, 70);
+  EEPROM.write(1, 10);
+  EEPROM.write(2, 10);
+  EEPROM.write(3, 10);
+  EEPROM.write(4, 0);
+  EEPROM.write(5, 0);
   EEPROM.commit();
 }
 
-// -------- LOAD/SAVE --------
 void loadHumorFromEEPROM() {
   EEPROM.begin(EEPROM_SIZE);
   pctFeliz      = EEPROM.read(0);
@@ -74,18 +70,26 @@ void saveHumorToEEPROM() {
   EEPROM.commit();
 }
 
-// -------- Helper para ajuste automático das emoções para totalizar 100% --------
-void normalizaEmocoes() {
-  int soma = pctFeliz + pctTriste + pctEntediado + pctBravo + pctNormal + pctApaixonado;
-  if (soma != 100) {
-    int dif = 100 - soma;
-    pctNormal += dif;
-    if (pctNormal < 0) pctNormal = 0;
-    if (pctNormal > 100) pctNormal = 100;
+// Nova normalização: tristeza/tédio/bravo podem chegar a 100% independentemente da felicidade.
+// Felicidade só é limitada pela soma com bravo/triste.
+void normalizaEmocoesAvancada(bool acaoFoiFeliz = false, bool acaoFoiTriste = false, bool acaoFoiBravo = false, bool acaoFoiEntediado = false) {
+  int maxNeg = max(pctTriste, pctBravo);
+  // Se felicidade for aumentada e excede o permitido, diminui os negativos.
+  if (acaoFoiFeliz && pctFeliz + maxNeg > 100) {
+    int excesso = pctFeliz + maxNeg - 100;
+    if (pctTriste >= pctBravo) {
+      pctTriste = max(0, pctTriste - excesso);
+    } else {
+      pctBravo = max(0, pctBravo - excesso);
+    }
   }
+  // Triste, bravo, entediado: podem crescer até 100% mesmo se felicidade zerou
+  pctFeliz = constrain(pctFeliz, 0, 100);
+  pctTriste = constrain(pctTriste, 0, 100);
+  pctBravo = constrain(pctBravo, 0, 100);
+  pctEntediado = constrain(pctEntediado, 0, 100);
 }
 
-// ----------- BLE JSON ------------
 String getDominantEmotion() {
   int lista[4] = {pctFeliz, pctTriste, pctEntediado, pctBravo};
   const char* nomes[4] = {"feliz", "triste", "entediado", "bravo"};
@@ -93,7 +97,7 @@ String getDominantEmotion() {
   for (int i = 1; i < 4; i++) {
     if (lista[i] > lista[idx]) idx = i;
   }
-  if (lista[idx] > 40) {
+  if (lista[idx] > 50) {
     return String(nomes[idx]);
   } else {
     return "normal";
@@ -134,7 +138,6 @@ String getHumorJSON() {
   return json;
 }
 
-// ---------- DISPLAY ----------
 void showEmoteOnDisplay() {
   String dominante = getDominantEmotion();
   if (dominante == "feliz") {
@@ -150,7 +153,6 @@ void showEmoteOnDisplay() {
   }
 }
 
-// ---------- BLE CALLBACK ----------
 class MyServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
     Serial.println("BLE Conectado");
@@ -162,7 +164,6 @@ class MyServerCallbacks: public BLEServerCallbacks {
   }
 };
 
-// --------- Helper para buscar só nome puro ---------
 String extraiNomeDeskBuddy(String full) {
   int idx = full.indexOf(":");
   if (idx != -1 && idx + 2 < full.length()) {
@@ -171,7 +172,6 @@ String extraiNomeDeskBuddy(String full) {
   return full;
 }
 
-// --------- Helper para verificar se já existe ---------
 bool jaTemNomeNoBuffer(String nome) {
   for (int i = 0; i < MAX_ENCONTRADOS; i++) {
     if (encontrados[i] == nome) return true;
@@ -231,12 +231,12 @@ void loop() {
   if (digitalRead(BUTTON_PIN) == LOW && (millis() - lastButtonTime > 500)) {
     lastButtonTime = millis();
 
-    // Felicidade +3%, triste/tédio/bravo -1% (se acima de zero)
-    if (pctFeliz < 100) pctFeliz += 3;
-    if (pctTriste > 0) pctTriste -= 1;
+    bool alterouFeliz = false, alterouTriste = false, alterouBravo = false;
+    if (pctFeliz < 100) { pctFeliz += 3; alterouFeliz = true; }
+    if (pctTriste > 0) { pctTriste -= 1; alterouTriste = true; }
+    if (pctBravo > 0) { pctBravo -= 1; alterouBravo = true; }
     if (pctEntediado > 0) pctEntediado -= 1;
-    if (pctBravo > 0) pctBravo -= 1;
-    normalizaEmocoes();
+    normalizaEmocoesAvancada(alterouFeliz, alterouTriste, alterouBravo, false);
     saveHumorToEEPROM();
     estadoDisplay = "feliz";
     estadoDisplayTimeout = millis() + 2000;
@@ -248,13 +248,20 @@ void loop() {
 
   // --- Decaimento por inatividade (a cada 3 segundos para debug) ---
   static unsigned long lastDecay = millis();
-  if (millis() - lastDecay > 500) { // 3 segundos para debug!
+  if (millis() - lastDecay > 3000) { // 3 segundos para debug!
     lastDecay = millis();
     if (pctFeliz > 0) {
-      pctFeliz -= 1;
+      pctFeliz -= 5;
       if (random(2) == 0) pctTriste += 1;
       else pctEntediado += 1;
-      normalizaEmocoes();
+      normalizaEmocoesAvancada(false, true, false, false);
+      saveHumorToEEPROM();
+      pCharacteristic->setValue(getHumorJSON().c_str());
+    } else {
+      // Felicidade já está zerada, mas tristeza e tédio podem crescer até 100%
+      if (random(2) == 0 && pctTriste < 100) pctTriste += 1;
+      else if (pctEntediado < 100) pctEntediado += 1;
+      normalizaEmocoesAvancada(false, true, false, true);
       saveHumorToEEPROM();
       pCharacteristic->setValue(getHumorJSON().c_str());
     }
@@ -294,7 +301,6 @@ void loop() {
       }
     }
   }
-  // Display animado da emoção dominante (inclui normalização)
   if (!foundDeskBuddy) {
     if (lastInteractionTime <= MAX_INTERACTION_INTERVAL) lastInteractionTime++;
     showEmoteOnDisplay();
