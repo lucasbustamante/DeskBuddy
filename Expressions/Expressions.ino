@@ -15,13 +15,12 @@
 #define OLED_ADDR 0x3C
 
 #define NAME "kizmo"
-#define BUTTON_PIN 37
+#define BUTTON_PIN 26           // Botão agora no pino 26
 #define EEPROM_SIZE 64
 #define MAX_INTERACTION_INTERVAL 100
 
 #define SERVICE_UUID        "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 #define CHARACTERISTIC_UUID "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
-
 #define MAX_ENCONTRADOS 10
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -30,8 +29,8 @@ BLECharacteristic *pCharacteristic;
 unsigned long lastInteractionTime = 0;
 unsigned long lastButtonTime = 0;
 
-// Emoções
-int pctNormal = 0, pctFeliz = 70, pctTriste = 0, pctEntediado = 0, pctBravo = 0, pctApaixonado = 0;
+// Emoções (sempre total 100%)
+int pctFeliz = 70, pctTriste = 10, pctEntediado = 10, pctBravo = 10, pctNormal = 0, pctApaixonado = 0;
 
 // Estado do display
 String estadoDisplay = "";
@@ -42,89 +41,80 @@ String encontrados[MAX_ENCONTRADOS];
 int idxEncontrado = 0;
 int countEncontrados = 0;
 
-// ---------- EEPROM sempre inicializa ----------
+// -------- EEPROM sempre inicializa --------
 void inicializaEEPROMSempre() {
   EEPROM.begin(EEPROM_SIZE);
-  EEPROM.write(0, 0);    // normal
-  EEPROM.write(1, 70);   // feliz
-  EEPROM.write(2, 0);    // triste
-  EEPROM.write(3, 0);    // entediado
-  EEPROM.write(4, 0);    // bravo
+  EEPROM.write(0, 70);   // felicidade
+  EEPROM.write(1, 10);   // tristeza
+  EEPROM.write(2, 10);   // tédio
+  EEPROM.write(3, 10);   // raiva
+  EEPROM.write(4, 0);    // normal
   EEPROM.write(5, 0);    // apaixonado
   EEPROM.commit();
 }
 
-// ---------- LOAD/SAVE ----------
+// -------- LOAD/SAVE --------
 void loadHumorFromEEPROM() {
   EEPROM.begin(EEPROM_SIZE);
-  pctNormal     = EEPROM.read(0);
-  pctFeliz      = EEPROM.read(1);
-  pctTriste     = EEPROM.read(2);
-  pctEntediado  = EEPROM.read(3);
-  pctBravo      = EEPROM.read(4);
+  pctFeliz      = EEPROM.read(0);
+  pctTriste     = EEPROM.read(1);
+  pctEntediado  = EEPROM.read(2);
+  pctBravo      = EEPROM.read(3);
+  pctNormal     = EEPROM.read(4);
   pctApaixonado = EEPROM.read(5);
 }
 
 void saveHumorToEEPROM() {
-  EEPROM.write(0, pctNormal);
-  EEPROM.write(1, pctFeliz);
-  EEPROM.write(2, pctTriste);
-  EEPROM.write(3, pctEntediado);
-  EEPROM.write(4, pctBravo);
+  EEPROM.write(0, pctFeliz);
+  EEPROM.write(1, pctTriste);
+  EEPROM.write(2, pctEntediado);
+  EEPROM.write(3, pctBravo);
+  EEPROM.write(4, pctNormal);
   EEPROM.write(5, pctApaixonado);
   EEPROM.commit();
 }
 
-// ---------- BLE JSON ----------
+// -------- Helper para ajuste automático das emoções para totalizar 100% --------
+void normalizaEmocoes() {
+  int soma = pctFeliz + pctTriste + pctEntediado + pctBravo + pctNormal + pctApaixonado;
+  if (soma != 100) {
+    int dif = 100 - soma;
+    pctNormal += dif;
+    if (pctNormal < 0) pctNormal = 0;
+    if (pctNormal > 100) pctNormal = 100;
+  }
+}
+
+// ----------- BLE JSON ------------
 String getDominantEmotion() {
-  if (estadoDisplay != "" && millis() < estadoDisplayTimeout) return estadoDisplay;
-  int humores[6] = {pctNormal, pctFeliz, pctTriste, pctEntediado, pctBravo, pctApaixonado};
-  const char* nomes[6] = {"normal", "feliz", "triste", "entediado", "bravo", "apaixonado"};
-  int idx = 0, maxValue = humores[0];
-  for (int i = 1; i < 6; i++) {
-    if (humores[i] > maxValue) {
-      maxValue = humores[i];
-      idx = i;
-    }
+  int lista[4] = {pctFeliz, pctTriste, pctEntediado, pctBravo};
+  const char* nomes[4] = {"feliz", "triste", "entediado", "bravo"};
+  int idx = 0;
+  for (int i = 1; i < 4; i++) {
+    if (lista[i] > lista[idx]) idx = i;
   }
-  return String(nomes[idx]);
+  if (lista[idx] > 40) {
+    return String(nomes[idx]);
+  } else {
+    return "normal";
+  }
 }
 
-// Helper para extrair apenas o nome após "DeskBuddy: "
-String extraiNomeDeskBuddy(String full) {
-  int idx = full.indexOf(":");
-  if (idx != -1 && idx + 2 < full.length()) {
-    return full.substring(idx + 2); // pula ": "
-  }
-  return full;
-}
-
-// Helper para verificar se o nome já está em todo o buffer (NUNCA duplica)
-bool jaTemNomeNoBuffer(String nome) {
-  for (int i = 0; i < MAX_ENCONTRADOS; i++) {
-    if (encontrados[i] == nome) return true;
-  }
-  return false;
-}
-
-// ---------- Função de JSON (garante nomes únicos e válidos no array) ----------
 String getHumorJSON() {
   String json = "{";
-  json += "\"normal\":"     + String(pctNormal)     + ",";
   json += "\"feliz\":"      + String(pctFeliz)      + ",";
   json += "\"triste\":"     + String(pctTriste)     + ",";
   json += "\"entediado\":"  + String(pctEntediado)  + ",";
   json += "\"bravo\":"      + String(pctBravo)      + ",";
+  json += "\"normal\":"     + String(pctNormal)     + ",";
   json += "\"apaixonado\":" + String(pctApaixonado) + ",";
   json += "\"dominante\":\"" + getDominantEmotion() + "\",";
   json += "\"nome\":\"" + String(NAME) + "\",";
   json += "\"encontrados\":[";
-  // Apenas nomes únicos e não-vazios
   bool first = true;
   for (int i = 0; i < MAX_ENCONTRADOS; i++) {
     String nome = encontrados[(idxEncontrado + i) % MAX_ENCONTRADOS];
     if (nome.length() > 0) {
-      // checa se já existe nesse JSON (até i-1)
       bool jaIncluido = false;
       for (int j = 0; j < i; j++) {
         if (encontrados[(idxEncontrado + j) % MAX_ENCONTRADOS] == nome) {
@@ -146,22 +136,17 @@ String getHumorJSON() {
 
 // ---------- DISPLAY ----------
 void showEmoteOnDisplay() {
-  int maxValue = pctNormal, idx = 0;
-  int humores[6] = {pctNormal, pctFeliz, pctTriste, pctEntediado, pctBravo, pctApaixonado};
-  for (int i = 1; i < 6; i++) {
-    if (humores[i] > maxValue) {
-      maxValue = humores[i];
-      idx = i;
-    }
-  }
-  switch(idx) {
-    case 0: normal(0,0,75); break;
-    case 1: happy(0,0,75); break;
-    case 2: sad(0,0,75); break;
-    case 3: cry(0,0,75); break;
-    case 4: angry(0,0,75); break;
-    case 5: loving(0,0,75); break;
-    default: normal(0,0,75);
+  String dominante = getDominantEmotion();
+  if (dominante == "feliz") {
+    happy(0,0,75);
+  } else if (dominante == "triste") {
+    sad(0,0,75);
+  } else if (dominante == "entediado") {
+    suspicion(0,0,75);
+  } else if (dominante == "bravo") {
+    angry(0,0,75);
+  } else {
+    normal(0,0,75);
   }
 }
 
@@ -176,6 +161,23 @@ class MyServerCallbacks: public BLEServerCallbacks {
     pServer->getAdvertising()->start();
   }
 };
+
+// --------- Helper para buscar só nome puro ---------
+String extraiNomeDeskBuddy(String full) {
+  int idx = full.indexOf(":");
+  if (idx != -1 && idx + 2 < full.length()) {
+    return full.substring(idx + 2); // pula ": "
+  }
+  return full;
+}
+
+// --------- Helper para verificar se já existe ---------
+bool jaTemNomeNoBuffer(String nome) {
+  for (int i = 0; i < MAX_ENCONTRADOS; i++) {
+    if (encontrados[i] == nome) return true;
+  }
+  return false;
+}
 
 void setup() {
   Serial.begin(115200);
@@ -225,41 +227,40 @@ void setup() {
 }
 
 void loop() {
-  // Botão para aumentar felicidade
+  // --- Botão (carinho) ---
   if (digitalRead(BUTTON_PIN) == LOW && (millis() - lastButtonTime > 500)) {
     lastButtonTime = millis();
-    pctFeliz = min(pctFeliz + 5, 100);
-    pctNormal = max(pctNormal - 2, 0);
-    lastInteractionTime = 0;
+
+    // Felicidade +3%, triste/tédio/bravo -1% (se acima de zero)
+    if (pctFeliz < 100) pctFeliz += 3;
+    if (pctTriste > 0) pctTriste -= 1;
+    if (pctEntediado > 0) pctEntediado -= 1;
+    if (pctBravo > 0) pctBravo -= 1;
+    normalizaEmocoes();
     saveHumorToEEPROM();
     estadoDisplay = "feliz";
-    estadoDisplayTimeout = millis() + 2000; // 2 segundos
+    estadoDisplayTimeout = millis() + 2000;
     pCharacteristic->setValue(getHumorJSON().c_str());
     happy(0,0,75);
     estadoDisplay = "";
     pCharacteristic->setValue(getHumorJSON().c_str());
   }
 
-  // Simulação: a cada 15s fica mais triste se ninguém interage
-  static unsigned long lastUpdate = 0;
-  if (millis() - lastUpdate > 15000) {
-    lastUpdate = millis();
-    if (lastInteractionTime > MAX_INTERACTION_INTERVAL) {
-      pctTriste = min(pctTriste + 1, 100);
-      pctFeliz = max(pctFeliz - 1, 0);
-      pctNormal = max(pctNormal - 1, 0);
+  // --- Decaimento por inatividade (a cada 3 segundos para debug) ---
+  static unsigned long lastDecay = millis();
+  if (millis() - lastDecay > 500) { // 3 segundos para debug!
+    lastDecay = millis();
+    if (pctFeliz > 0) {
+      pctFeliz -= 1;
+      if (random(2) == 0) pctTriste += 1;
+      else pctEntediado += 1;
+      normalizaEmocoes();
       saveHumorToEEPROM();
-      estadoDisplay = "triste";
-      estadoDisplayTimeout = millis() + 2000; // 2 segundos
-      pCharacteristic->setValue(getHumorJSON().c_str());
-      sad(0,0,75);
-      estadoDisplay = "";
       pCharacteristic->setValue(getHumorJSON().c_str());
     }
   }
 
   // ------------ ENCONTRADOS: BUFFER CIRCULAR ÚNICO, só nome puro, nunca duplica -----------
-  // BLE Scan: detectar outros DeskBuddy
   BLEScan* pBLEScan = BLEDevice::getScan();
   BLEScanResults results = pBLEScan->start(1, false);
 
@@ -285,7 +286,7 @@ void loop() {
         pctNormal = min(pctNormal + 1, 100);
         saveHumorToEEPROM();
         estadoDisplay = "suspeito";
-        estadoDisplayTimeout = millis() + 2000; // 2 segundos
+        estadoDisplayTimeout = millis() + 2000;
         pCharacteristic->setValue(getHumorJSON().c_str());
         suspicion(0, 0, 75);
         estadoDisplay = "";
@@ -293,6 +294,7 @@ void loop() {
       }
     }
   }
+  // Display animado da emoção dominante (inclui normalização)
   if (!foundDeskBuddy) {
     if (lastInteractionTime <= MAX_INTERACTION_INTERVAL) lastInteractionTime++;
     showEmoteOnDisplay();
