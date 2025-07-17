@@ -16,24 +16,21 @@
 
 #define NAME "kizmo"
 #define BUTTON_PIN 26
-#define EEPROM_SIZE 384 // aumente se necessário!
+#define EEPROM_SIZE 1024
 #define MAX_INTERACTION_INTERVAL 100
 
 #define SERVICE_UUID        "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 #define CHARACTERISTIC_UUID "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
 #define MAX_ENCONTRADOS 10
-#define MAX_RELACOES 10
 #define TAM_NOME 16
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 BLECharacteristic *pCharacteristic;
 
-// Emoções
+// Emoções gerais
 int pctFeliz = 70, pctTriste = 10, pctEntediado = 10, pctBravo = 10, pctNormal = 0, pctApaixonado = 0;
-
 unsigned long lastInteractionTime = 0;
 unsigned long lastButtonTime = 0;
-
 String estadoDisplay = "";
 unsigned long estadoDisplayTimeout = 0;
 
@@ -42,71 +39,82 @@ String encontrados[MAX_ENCONTRADOS];
 int idxEncontrado = 0;
 int countEncontrados = 0;
 
-// Relacionamentos
+// Relacionamento e interações por buddy
 struct Relacao {
   char nome[TAM_NOME];
-  bool gosta; // true = gosta, false = odeia
+  bool gosta; // true = gosta, false = não gosta
+  int contador; // número de interações
+  bool relacaoDefinida;
+  bool segundaChanceConcedida; // ADICIONADO
 };
-Relacao relacoes[MAX_RELACOES];
+
+Relacao relacoes[MAX_ENCONTRADOS];
+
+void limpaTodaEEPROM() {
+  EEPROM.begin(EEPROM_SIZE);
+  for (int i = 0; i < EEPROM_SIZE; i++) {
+    EEPROM.write(i, 0x00);
+  }
+  EEPROM.commit();
+}
 
 void salvaRelacoesEEPROM() {
-  int addr = 10; // bytes 0-9 para emoções
-  for (int i = 0; i < MAX_RELACOES; i++) {
+  int addr = 10; // 0-9 para emoções globais
+  for (int i = 0; i < MAX_ENCONTRADOS; i++) {
     for (int j = 0; j < TAM_NOME; j++) EEPROM.write(addr++, relacoes[i].nome[j]);
     EEPROM.write(addr++, relacoes[i].gosta ? 1 : 0);
+    EEPROM.write(addr++, relacoes[i].contador);
+    EEPROM.write(addr++, relacoes[i].relacaoDefinida ? 1 : 0);
+    EEPROM.write(addr++, relacoes[i].segundaChanceConcedida ? 1 : 0); // NOVO
   }
   EEPROM.commit();
 }
 
 void carregaRelacoesEEPROM() {
   int addr = 10;
-  for (int i = 0; i < MAX_RELACOES; i++) {
+  for (int i = 0; i < MAX_ENCONTRADOS; i++) {
     for (int j = 0; j < TAM_NOME; j++) relacoes[i].nome[j] = EEPROM.read(addr++);
     relacoes[i].gosta = EEPROM.read(addr++) == 1;
+    relacoes[i].contador = EEPROM.read(addr++);
+    relacoes[i].relacaoDefinida = EEPROM.read(addr++) == 1;
+    relacoes[i].segundaChanceConcedida = EEPROM.read(addr++) == 1;
   }
 }
 
 int buscaRelacao(const String& nome) {
-  for (int i = 0; i < MAX_RELACOES; i++) {
+  for (int i = 0; i < MAX_ENCONTRADOS; i++) {
     if (String(relacoes[i].nome) == nome) return i;
   }
   return -1;
 }
 
-void defineRelacao(const String& nome, bool gosta) {
+int defineRelacaoIndex(const String& nome) {
   int idx = buscaRelacao(nome);
   if (idx == -1) {
-    for (int i = 0; i < MAX_RELACOES; i++) {
+    // Procura slot vazio
+    for (int i = 0; i < MAX_ENCONTRADOS; i++) {
       if (relacoes[i].nome[0] == 0) {
         nome.toCharArray(relacoes[i].nome, TAM_NOME);
-        relacoes[i].gosta = gosta;
-        break;
+        relacoes[i].gosta = false;
+        relacoes[i].contador = 0;
+        relacoes[i].relacaoDefinida = false;
+        relacoes[i].segundaChanceConcedida = false;
+        salvaRelacoesEEPROM();
+        return i;
       }
     }
-  } else {
-    relacoes[idx].gosta = gosta;
   }
-  salvaRelacoesEEPROM();
+  return idx;
 }
 
-bool getRelacao(const String& nome, bool& gosta) {
-  int idx = buscaRelacao(nome);
-  if (idx != -1) {
-    gosta = relacoes[idx].gosta;
-    return true;
-  }
-  return false;
-}
-
-// Emoções EEPROM
 void inicializaEEPROMSempre() {
   EEPROM.begin(EEPROM_SIZE);
-  EEPROM.write(0, 70);
-  EEPROM.write(1, 10);
-  EEPROM.write(2, 10);
-  EEPROM.write(3, 10);
-  EEPROM.write(4, 0);
-  EEPROM.write(5, 0);
+  EEPROM.write(0, 70); // Feliz
+  EEPROM.write(1, 10); // Triste
+  EEPROM.write(2, 10); // Entediado
+  EEPROM.write(3, 10); // Bravo
+  EEPROM.write(4, 0);  // Normal
+  EEPROM.write(5, 0);  // Apaixonado
   EEPROM.commit();
 }
 
@@ -132,7 +140,6 @@ void saveHumorToEEPROM() {
   salvaRelacoesEEPROM();
 }
 
-// Normalização avançada
 void normalizaEmocoesAvancada(bool acaoFoiFeliz = false, bool acaoFoiTriste = false, bool acaoFoiBravo = false, bool acaoFoiEntediado = false) {
   int maxNeg = max(pctTriste, pctBravo);
   if (acaoFoiFeliz && pctFeliz + maxNeg > 100) {
@@ -176,20 +183,16 @@ String getHumorJSON() {
   json += "\"encontrados\":[";
   bool first = true;
   for (int i = 0; i < MAX_ENCONTRADOS; i++) {
-    String nome = encontrados[(idxEncontrado + i) % MAX_ENCONTRADOS];
+    String nome = encontrados[i];
     if (nome.length() > 0) {
-      bool jaIncluido = false;
-      for (int j = 0; j < i; j++) {
-        if (encontrados[(idxEncontrado + j) % MAX_ENCONTRADOS] == nome) {
-          jaIncluido = true;
-          break;
-        }
+      if (!first) json += ",";
+      json += "{\"nome\":\"" + nome + "\"";
+      int idx = buscaRelacao(nome);
+      if (idx != -1 && relacoes[idx].relacaoDefinida) {
+        json += ",\"gosta\":" + String(relacoes[idx].gosta ? "true" : "false");
       }
-      if (!jaIncluido) {
-        if (!first) json += ",";
-        json += "\"" + nome + "\"";
-        first = false;
-      }
+      json += "}";
+      first = false;
     }
   }
   json += "]";
@@ -226,7 +229,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
 String extraiNomeDeskBuddy(String full) {
   int idx = full.indexOf(":");
   if (idx != -1 && idx + 2 < full.length()) {
-    return full.substring(idx + 2); // pula ": "
+    return full.substring(idx + 2);
   }
   return full;
 }
@@ -238,16 +241,10 @@ bool jaTemNomeNoBuffer(String nome) {
   return false;
 }
 
-// ---- Relacionamento por interações ----
-String buddyInteragindo = "";
-bool relacaoDefinida = false;
-bool resultadoRelacao = false; // true=gosta, false=odeia
-bool segundaChance = false;
-int contadorInteracoes = 0;
-int contadorSegundaChance = 0;
-
 void setup() {
   Serial.begin(115200);
+
+  limpaTodaEEPROM();
 
   Wire.begin(32, 33);
 
@@ -287,14 +284,13 @@ void setup() {
 
   pService->start();
   pServer->getAdvertising()->start();
-
   BLEDevice::getScan()->setActiveScan(true);
 
   showEmoteOnDisplay();
 }
 
 void loop() {
-  // --- Botão (carinho) ---
+  // Botão de carinho
   if (digitalRead(BUTTON_PIN) == LOW && (millis() - lastButtonTime > 500)) {
     lastButtonTime = millis();
 
@@ -314,9 +310,9 @@ void loop() {
     Serial.println("[CARINHO] Botão pressionado. Felicidade +3, Tristeza/Bravo/Entediado -1.");
   }
 
-  // --- Decaimento por inatividade (a cada 3 segundos para debug) ---
+  // Decaimento por inatividade (3 segundos debug)
   static unsigned long lastDecay = millis();
-  if (millis() - lastDecay > 3000) { // 3 segundos para debug!
+  if (millis() - lastDecay > 3000) {
     lastDecay = millis();
     if (pctFeliz > 0) {
       pctFeliz -= 5;
@@ -340,142 +336,102 @@ void loop() {
   BLEScanResults results = pBLEScan->start(1, false);
 
   int maxRSSI = -100;
-  bool foundDeskBuddy = false;
-  bool emInteracao = false;
   String nomeBuddyAtual = "";
+  bool emInteracao = false;
 
   for (int i = 0; i < results.getCount(); i++) {
     BLEAdvertisedDevice device = results.getDevice(i);
     std::string nameStd = device.getName();
     if (!nameStd.empty() && nameStd.find("DeskBuddy") != std::string::npos) {
-      foundDeskBuddy = true;
       String nomePuro = extraiNomeDeskBuddy(String(nameStd.c_str()));
       nomeBuddyAtual = nomePuro;
 
+      // Buffer de encontrados
       if (nomePuro.length() > 0 && nomePuro != String(NAME) && !jaTemNomeNoBuffer(nomePuro)) {
         encontrados[idxEncontrado] = nomePuro;
         idxEncontrado = (idxEncontrado + 1) % MAX_ENCONTRADOS;
         if (countEncontrados < MAX_ENCONTRADOS) countEncontrados++;
       }
 
-      int rssi = device.getRSSI();
-      if (rssi > maxRSSI) {
-        maxRSSI = rssi;
-        lastInteractionTime = 0;
-        pctNormal = min(pctNormal + 1, 100);
-        saveHumorToEEPROM();
-        estadoDisplay = "suspeito";
-        estadoDisplayTimeout = millis() + 2000;
-        pCharacteristic->setValue(getHumorJSON().c_str());
-        suspicion(0, 0, 75);
-        estadoDisplay = "";
-        pCharacteristic->setValue(getHumorJSON().c_str());
-        Serial.print("[SCAN] DeskBuddy detectado: ");
-        Serial.println(nomePuro);
-      }
-      emInteracao = true;
+      int idx = defineRelacaoIndex(nomePuro);
+      Relacao &rel = relacoes[idx];
 
-      // --- LÓGICA DO RELACIONAMENTO POR INTERAÇÕES ---
-      if (buddyInteragindo != nomePuro) {
-        // Mudou de buddy? Reseta tudo!
-        Serial.print("[BUDDY] Novo Buddy detectado: ");
-        Serial.println(nomePuro);
-        buddyInteragindo = nomePuro;
-        relacaoDefinida = false;
-        resultadoRelacao = false;
-        segundaChance = false;
-        contadorInteracoes = 1;
-        contadorSegundaChance = 0;
-      } else {
-        // Mesmo buddy, incrementa interação
-        if (!relacaoDefinida) {
-          contadorInteracoes++;
-          Serial.print("[DEBUG] Interações com ");
-          Serial.print(nomePuro);
-          Serial.print(": ");
-          Serial.println(contadorInteracoes);
+      // Contador de interações é persistente e nunca reseta!
+      rel.contador++;
+      salvaRelacoesEEPROM();
 
-          // Após 2 interações, sorteia relação
-          if (contadorInteracoes >= 2) {
-            int sorte = random(100);
-            resultadoRelacao = (sorte < 70); // 70% gosta, 30% não gosta
-            relacaoDefinida = true;
-            defineRelacao(nomePuro, resultadoRelacao);
-            if (resultadoRelacao) {
-              Serial.println("[RELACAO] Após 2 interações: GOSTA (70%)");
-            } else {
-              Serial.println("[RELACAO] Após 2 interações: NÃO GOSTA (30%) - vai para segunda chance após 4 interações");
-              segundaChance = true;
-              contadorSegundaChance = 0;
-            }
-          }
-        } else if (segundaChance && !resultadoRelacao) {
-          contadorSegundaChance++;
-          Serial.print("[DEBUG] Segunda chance, interações: ");
-          Serial.println(contadorSegundaChance);
+      Serial.print("[BUDDY] Encontrado: ");
+      Serial.print(nomePuro);
+      Serial.print(" | Interações: ");
+      Serial.println(rel.contador);
 
-          // Após 4 interações na segunda chance
-          if (contadorSegundaChance >= 4) {
-            int novaSorte = random(100);
-            resultadoRelacao = (novaSorte < 50); // 50%/50%
-            defineRelacao(nomePuro, resultadoRelacao);
-            if (resultadoRelacao) {
-              Serial.println("[RELACAO] Segunda chance (4 interações): AGORA GOSTA (50%)");
-            } else {
-              Serial.println("[RELACAO] Segunda chance (4 interações): CONTINUA NÃO GOSTANDO (50%)");
-            }
-            segundaChance = false;
-            relacaoDefinida = true;
-          }
-        }
-      }
-
-      // --- EMOÇÕES E CARAS CONFORME RELAÇÃO ---
-      if (relacaoDefinida) {
-        if (!resultadoRelacao) {
-          // Não gosta: suspicion, aumenta 1% tédio/bravo a cada interação
-          pctEntediado = min(100, pctEntediado + 1);
-          pctBravo = min(100, pctBravo + 1);
-          suspicion(0, 0, 75);
-          saveHumorToEEPROM();
-          pCharacteristic->setValue(getHumorJSON().c_str());
-          Serial.print("[EMOCAO] NÃO gosta de ");
-          Serial.print(nomePuro);
-          Serial.print(". Tédio e raiva +1 (");
-          Serial.print(pctEntediado);
-          Serial.print("/");
-          Serial.print(pctBravo);
-          Serial.println(")");
+      // --- Lógica das chances ---
+      // Primeira avaliação: 2 interações
+      if (!rel.relacaoDefinida && rel.contador >= 2) {
+        int sorte = random(100);
+        rel.gosta = (sorte <1); // 70% gosta
+        rel.relacaoDefinida = true;
+        rel.segundaChanceConcedida = false;
+        salvaRelacoesEEPROM();
+        if (rel.gosta) {
+          Serial.println("[RELACAO] Após 2 interações: GOSTA (70%)");
         } else {
-          // Gosta: aumenta 1% felicidade a cada interação, e diminui 1% dos outros a cada interação
-          if (pctTriste > 0) pctTriste--;
-          if (pctEntediado > 0) pctEntediado--;
-          if (pctBravo > 0) pctBravo--;
-          pctFeliz = min(100, pctFeliz + 1);
-          saveHumorToEEPROM();
-          pCharacteristic->setValue(getHumorJSON().c_str());
-          Serial.print("[EMOCAO] Gosta de ");
-          Serial.print(nomePuro);
-          Serial.print(". Felicidade +1 (");
-          Serial.print(pctFeliz);
-          Serial.println("), tristeza/tédio/raiva -1.");
-          happy(0, 0, 75);
+          Serial.println("[RELACAO] Após 2 interações: NÃO GOSTA (30%) - Segunda chance após 4 interações.");
         }
       }
+      // Segunda chance: após mais 4 interações, se ainda não gosta
+      else if (rel.relacaoDefinida && !rel.gosta && !rel.segundaChanceConcedida && rel.contador >= 6) {
+        int sorte2 = random(100);
+        rel.gosta = (sorte2 < 99); 
+        rel.segundaChanceConcedida = true;
+        salvaRelacoesEEPROM();
+        if (rel.gosta) {
+          Serial.println("[RELACAO] Segunda chance após 4 interações: AGORA GOSTA (50%)");
+        } else {
+          Serial.println("[RELACAO] Segunda chance após 4 interações: CONTINUA NÃO GOSTANDO (50%)");
+        }
+      }
+
+      // Emoções por relacionamento
+      if (rel.relacaoDefinida && (!rel.gosta || (rel.segundaChanceConcedida && !rel.gosta))) {
+        // Não gosta: angry, aumenta raiva/tédio
+        pctEntediado = min(100, pctEntediado + 1);
+        pctBravo = min(100, pctBravo + 1);
+        angry(0, 0, 75);
+        saveHumorToEEPROM();
+        pCharacteristic->setValue(getHumorJSON().c_str());
+        Serial.print("[EMOCAO] NÃO gosta de ");
+        Serial.print(nomePuro);
+        Serial.print(". Tédio e raiva +1 (");
+        Serial.print(pctEntediado);
+        Serial.print("/");
+        Serial.print(pctBravo);
+        Serial.println(")");
+      } else if (rel.relacaoDefinida && rel.gosta) {
+        // Gosta: happy, aumenta felicidade, reduz triste/tédio/raiva
+        if (pctTriste > 0) pctTriste--;
+        if (pctEntediado > 0) pctEntediado--;
+        if (pctBravo > 0) pctBravo--;
+        pctFeliz = min(100, pctFeliz + 1);
+        saveHumorToEEPROM();
+        pCharacteristic->setValue(getHumorJSON().c_str());
+        Serial.print("[EMOCAO] Gosta de ");
+        Serial.print(nomePuro);
+        Serial.print(". Felicidade +1 (");
+        Serial.print(pctFeliz);
+        Serial.println("), tristeza/tédio/raiva -1.");
+        happy(0, 0, 75);
+      } else {
+        // Suspicion nos dois primeiros encontros
+        suspicion(0, 0, 75);
+      }
+
+      emInteracao = true;
+      break; // só um buddy por vez
     }
   }
 
-  // Fora do for: se não está mais interagindo
   if (!emInteracao) {
-    if (buddyInteragindo.length() > 0) {
-      Serial.println("[BUDDY] Não está mais interagindo com nenhum DeskBuddy. Resetando contadores.");
-    }
-    buddyInteragindo = "";
-    relacaoDefinida = false;
-    resultadoRelacao = false;
-    segundaChance = false;
-    contadorInteracoes = 0;
-    contadorSegundaChance = 0;
     showEmoteOnDisplay();
   }
 }
