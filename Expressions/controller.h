@@ -1,7 +1,7 @@
 // teste.h
 
-#ifndef TESTE_H
-#define TESTE_H
+#ifndef CONTROLLER_H
+#define CONTROLLER_H
 
 void sad(int xx, int yy, int tt);
 

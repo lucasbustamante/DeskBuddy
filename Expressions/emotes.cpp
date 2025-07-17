@@ -3,8 +3,8 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include "emotes.h"
-#include "teste.h"
+#include "images.h"
+#include "controller.h"
 
 extern Adafruit_SSD1306 display;
 

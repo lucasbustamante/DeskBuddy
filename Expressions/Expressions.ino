@@ -6,8 +6,8 @@
 #include <BLEServer.h>
 #include <BLEScan.h>
 #include <EEPROM.h>
-#include "emotes.h"
-#include "teste.h"
+#include "images.h"
+#include "controller.h"
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
