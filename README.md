@@ -59,7 +59,7 @@ Você poderá se conectar ao DeskBuddy através de um navegador web em sua rede 
 
 2. **Happy:**
 
-![Logo do Markdown](assets/happy.gif)
+![Logo do Markdown](assets/feliz.gif)
    - Descrição: Os olhos do DeskBuddy se alargam e brilham, demonstrando uma expressão de felicidade.
    - Uso: Quando algo positivo acontece ou o DeskBuddy quer expressar satisfação.
 
@@ -71,7 +71,7 @@ Você poderá se conectar ao DeskBuddy através de um navegador web em sua rede 
 
 4. **Sad:**
 
-![Logo do Markdown](assets/sad.gif)
+![Logo do Markdown](assets/triste.gif)
    - Descrição: Os olhos do DeskBuddy se tornam tristes e caídos, com uma expressão melancólica.
    - Uso: Quando o DeskBuddy "percebe" algo negativo ou está "triste" por algum motivo.
 
