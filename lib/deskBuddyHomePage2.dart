@@ -1,4 +1,5 @@
 import 'package:deskbuddy/bleController.dart';
+import 'package:deskbuddy/settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_rounded_progress_bar/flutter_rounded_progress_bar.dart';
 import 'package:flutter_rounded_progress_bar/rounded_progress_bar_style.dart';
@@ -147,7 +148,7 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
               onTap: () => Navigator.pop(context),
             ),
             ListTile(
-              leading: Icon(Icons.heart_broken, color: Colors.orange),
+              leading: Icon(Icons.favorite, color: Colors.orange),
               title: Text('Relacionamentos'),
               onTap: () => Navigator.pop(context),
             ),
@@ -169,7 +170,15 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
             ListTile(
               leading: Icon(Icons.settings, color: Colors.orange),
               title: Text('Configurações'),
-              onTap: () => Navigator.pop(context),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => Settings()
+                    )
+                );
+              },
             ),
           ],
         ),
@@ -186,7 +195,7 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
               Text(
                 _reloadCount >= 3
                     ? "Não foi possível conectar ao DeskBuddy.\n\nFeche e reabra o aplicativo para tentar novamente."
-                    : "Não foi possível encontrar o DeskBuddy.",
+                    : "Não foi possível encontrar seu DeskBuddy.",
                 style: TextStyle(
                   fontSize: 20,
                   color: Colors.orange[900],
@@ -236,7 +245,7 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
               ),
               SizedBox(height: 20),
               Text(
-                "Carregando dados do DeskBuddy...",
+                "Procurando seu DeskBuddy...",
                 style: TextStyle(fontSize: 18, color: Colors.orange[800]),
               ),
             ],
