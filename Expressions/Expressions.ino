@@ -16,7 +16,7 @@
 
 #define NAME "kizmo"
 #define SENHA "oi23"
-#define BUTTON_PIN 26
+#define BUTTON_PIN 6
 #define EEPROM_SIZE 1024
 #define MAX_INTERACTION_INTERVAL 100
 
@@ -248,7 +248,7 @@ void setup() {
 
   limpaTodaEEPROM();
 
-  Wire.begin(32, 33);
+  Wire.begin(2, 3);
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
     Serial.println(F("Erro ao inicializar o display OLED"));
@@ -335,17 +335,17 @@ void loop() {
   }
 
   BLEScan* pBLEScan = BLEDevice::getScan();
-  BLEScanResults results = pBLEScan->start(1, false);
+  BLEScanResults* results = pBLEScan->start(1, false);
 
   int maxRSSI = -100;
   String nomeBuddyAtual = "";
   bool emInteracao = false;
 
-  for (int i = 0; i < results.getCount(); i++) {
-    BLEAdvertisedDevice device = results.getDevice(i);
-    std::string nameStd = device.getName();
-    if (!nameStd.empty() && nameStd.find("DeskBuddy") != std::string::npos) {
-      String nomePuro = extraiNomeDeskBuddy(String(nameStd.c_str()));
+  for (int i = 0; i < results->getCount(); i++) {
+    BLEAdvertisedDevice device = results->getDevice(i);
+    String nameStd = device.getName();
+    if (nameStd.length() > 0 && nameStd.indexOf("DeskBuddy") != -1) {
+      String nomePuro = extraiNomeDeskBuddy(nameStd);
       nomeBuddyAtual = nomePuro;
 
       // Buffer de encontrados
@@ -371,7 +371,7 @@ void loop() {
       // Primeira avaliação: 2 interações
       if (!rel.relacaoDefinida && rel.contador >= 2) {
         int sorte = random(100);
-        rel.gosta = (sorte <1); // 70% gosta
+        rel.gosta = (sorte < 70); // 70% gosta
         rel.relacaoDefinida = true;
         rel.segundaChanceConcedida = false;
         salvaRelacoesEEPROM();
@@ -384,7 +384,7 @@ void loop() {
       // Segunda chance: após mais 4 interações, se ainda não gosta
       else if (rel.relacaoDefinida && !rel.gosta && !rel.segundaChanceConcedida && rel.contador >= 6) {
         int sorte2 = random(100);
-        rel.gosta = (sorte2 < 99); 
+        rel.gosta = (sorte2 < 50); 
         rel.segundaChanceConcedida = true;
         salvaRelacoesEEPROM();
         if (rel.gosta) {
