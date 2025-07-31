@@ -15,6 +15,7 @@
 #define OLED_ADDR 0x3C
 
 #define NAME "kizmo"
+#define SENHA "oi23"
 #define BUTTON_PIN 26
 #define EEPROM_SIZE 1024
 #define MAX_INTERACTION_INTERVAL 100
@@ -180,6 +181,7 @@ String getHumorJSON() {
   json += "\"apaixonado\":" + String(pctApaixonado) + ",";
   json += "\"dominante\":\"" + getDominantEmotion() + "\",";
   json += "\"nome\":\"" + String(NAME) + "\",";
+  json += "\"senha\":\"" + String(SENHA) + "\",";
   json += "\"encontrados\":[";
   bool first = true;
   for (int i = 0; i < MAX_ENCONTRADOS; i++) {

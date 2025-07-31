@@ -1,8 +1,9 @@
-//ble_controller.dart
+// ble_controller.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_blue/flutter_blue.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class BleController {
   Map<String, dynamic> emocoes = {};
@@ -15,6 +16,10 @@ class BleController {
   final String characteristicUuid = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
   final String deviceName = "DeskBuddy";
 
+  // Para login (opcional: se quiser guardar em memória)
+  String? nomeSalvo;
+  String? senhaSalva;
+
   Future<void> requestPermissions() async {
     await Permission.bluetoothScan.request();
     await Permission.bluetoothConnect.request();
@@ -23,7 +28,16 @@ class BleController {
     await Permission.bluetoothAdvertise.request();
   }
 
+  Future<void> _carregaCredenciaisSalvas() async {
+    // Carrega o nome e senha salvos
+    final prefs = await SharedPreferences.getInstance();
+    nomeSalvo = prefs.getString('deskbuddy_nome');
+    senhaSalva = prefs.getString('deskbuddy_senha');
+  }
+
   Future<void> scanAndConnectOnce() async {
+    await _carregaCredenciaisSalvas();
+
     scanning = true;
     status = "Escaneando...";
 
@@ -48,10 +62,20 @@ class BleController {
 
                   try {
                     var decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
-                    emocoes = decoded;
-                    status = "Dados recebidos!";
+                    // Checa nome e senha
+                    if (nomeSalvo == null || senhaSalva == null) {
+                      status = "Nome e senha não definidos.";
+                      emocoes = {};
+                    } else if (decoded['nome'] == nomeSalvo && decoded['senha'] == senhaSalva) {
+                      emocoes = decoded;
+                      status = "Dados recebidos!";
+                    } else {
+                      emocoes = {};
+                      status = "Nome ou senha inválidos para o DeskBuddy!";
+                    }
                   } catch (e) {
                     status = "Erro ao decodificar JSON: $e\nValor lido: $jsonStr";
+                    emocoes = {};
                   }
                   await scanResult.device.disconnect();
                   break;

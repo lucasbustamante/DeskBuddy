@@ -105,15 +105,6 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
         ),
         backgroundColor: bgColor,
         iconTheme: IconThemeData(color: Colors.orange[800]),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.all(10.0),
-            child: CircleAvatar(
-              backgroundColor: Colors.orange.shade200,
-              child: Icon(Icons.person, color: Colors.orange[900]),
-            ),
-          ),
-        ],
       ),
       drawer: Drawer(
         child: ListView(

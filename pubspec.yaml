@@ -41,10 +41,19 @@ dependencies:
   get: ^4.6.6
   flutter_rounded_progress_bar: ^0.3.2
   flutter_phoenix: ^1.1.1
+  shared_preferences: ^2.0.18
+  flutter_native_splash: ^2.3.11
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+flutter_native_splash:
+  color: "#0xFFFFF7ED"        # cor de fundo
+  image: assets/logo.png  # logo
+  android: true
+  ios: true
+
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
