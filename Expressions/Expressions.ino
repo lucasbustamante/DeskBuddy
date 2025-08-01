@@ -46,7 +46,7 @@ struct Relacao {
   bool gosta; // true = gosta, false = não gosta
   int contador; // número de interações
   bool relacaoDefinida;
-  bool segundaChanceConcedida; // ADICIONADO
+  bool segundaChanceConcedida;
 };
 
 Relacao relacoes[MAX_ENCONTRADOS];
@@ -61,25 +61,31 @@ void limpaTodaEEPROM() {
 
 void salvaRelacoesEEPROM() {
   int addr = 10; // 0-9 para emoções globais
-  for (int i = 0; i < MAX_ENCONTRADOS; i++) {
-    for (int j = 0; j < TAM_NOME; j++) EEPROM.write(addr++, relacoes[i].nome[j]);
-    EEPROM.write(addr++, relacoes[i].gosta ? 1 : 0);
-    EEPROM.write(addr++, relacoes[i].contador);
-    EEPROM.write(addr++, relacoes[i].relacaoDefinida ? 1 : 0);
-    EEPROM.write(addr++, relacoes[i].segundaChanceConcedida ? 1 : 0); // NOVO
-  }
+  EEPROM.put(addr, relacoes);
   EEPROM.commit();
 }
-
 void carregaRelacoesEEPROM() {
   int addr = 10;
-  for (int i = 0; i < MAX_ENCONTRADOS; i++) {
-    for (int j = 0; j < TAM_NOME; j++) relacoes[i].nome[j] = EEPROM.read(addr++);
-    relacoes[i].gosta = EEPROM.read(addr++) == 1;
-    relacoes[i].contador = EEPROM.read(addr++);
-    relacoes[i].relacaoDefinida = EEPROM.read(addr++) == 1;
-    relacoes[i].segundaChanceConcedida = EEPROM.read(addr++) == 1;
-  }
+  EEPROM.get(addr, relacoes);
+}
+
+// ---- PERSISTÊNCIA DO BUFFER DE ENCONTRADOS ----
+void salvaBufferEncontradosEEPROM() {
+  int addr = 10 + sizeof(relacoes);
+  EEPROM.put(addr, encontrados);
+  addr += sizeof(encontrados);
+  EEPROM.put(addr, idxEncontrado);
+  addr += sizeof(idxEncontrado);
+  EEPROM.put(addr, countEncontrados);
+  EEPROM.commit();
+}
+void carregaBufferEncontradosEEPROM() {
+  int addr = 10 + sizeof(relacoes);
+  EEPROM.get(addr, encontrados);
+  addr += sizeof(encontrados);
+  EEPROM.get(addr, idxEncontrado);
+  addr += sizeof(idxEncontrado);
+  EEPROM.get(addr, countEncontrados);
 }
 
 int buscaRelacao(const String& nome) {
@@ -108,6 +114,7 @@ int defineRelacaoIndex(const String& nome) {
   return idx;
 }
 
+// Só use essa função para resetar manualmente!
 void inicializaEEPROMSempre() {
   EEPROM.begin(EEPROM_SIZE);
   EEPROM.write(0, 70); // Feliz
@@ -128,6 +135,7 @@ void loadHumorFromEEPROM() {
   pctNormal     = EEPROM.read(4);
   pctApaixonado = EEPROM.read(5);
   carregaRelacoesEEPROM();
+  carregaBufferEncontradosEEPROM();
 }
 
 void saveHumorToEEPROM() {
@@ -139,6 +147,7 @@ void saveHumorToEEPROM() {
   EEPROM.write(5, pctApaixonado);
   EEPROM.commit();
   salvaRelacoesEEPROM();
+  salvaBufferEncontradosEEPROM();
 }
 
 void normalizaEmocoesAvancada(bool acaoFoiFeliz = false, bool acaoFoiTriste = false, bool acaoFoiBravo = false, bool acaoFoiEntediado = false) {
@@ -246,9 +255,10 @@ bool jaTemNomeNoBuffer(String nome) {
 void setup() {
   Serial.begin(115200);
 
-  limpaTodaEEPROM();
-
   Wire.begin(2, 3);
+
+  // === DESCOMENTE ESTA LINHA PARA LIMPAR A EEPROM AO GRAVAR ===
+  limpaTodaEEPROM();   // <--- DESCOMENTE para apagar tudo na EEPROM
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
     Serial.println(F("Erro ao inicializar o display OLED"));
@@ -270,7 +280,6 @@ void setup() {
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  inicializaEEPROMSempre();
   loadHumorFromEEPROM();
 
   BLEDevice::init("DeskBuddy");
@@ -353,6 +362,7 @@ void loop() {
         encontrados[idxEncontrado] = nomePuro;
         idxEncontrado = (idxEncontrado + 1) % MAX_ENCONTRADOS;
         if (countEncontrados < MAX_ENCONTRADOS) countEncontrados++;
+        salvaBufferEncontradosEEPROM();
       }
 
       int idx = defineRelacaoIndex(nomePuro);
