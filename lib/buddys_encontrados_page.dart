@@ -141,7 +141,7 @@ class _BuddysEncontradosPageState extends State<BuddysEncontradosPage> {
                 separatorBuilder: (context, idx) => SizedBox(height: 12),
                 itemBuilder: (context, i) {
                   final encontrado = _filteredList[i];
-                  final nome = encontrado["nome"] ?? "";
+                  final nome = encontrado["nome"] ?? ""; // <<--- SÓ O CAMPO NOME DO JSON!
                   String status;
                   if (encontrado.containsKey("gosta")) {
                     if (encontrado["gosta"] == true) {

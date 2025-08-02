@@ -21,6 +21,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _scanning = false;
   List<String> _buddyNames = [];
   Map<String, BluetoothDevice> _buddyDevices = {};
+  Map<String, String> _buddyIds = {}; // nome -> id BLE (para debug)
 
   static const String serviceUuid = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
   static const String characteristicUuid = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
@@ -28,11 +29,8 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
-
     _pedePermissoesBluetooth();
   }
-
-
 
   Future<void> _pedePermissoesBluetooth() async {
     await Permission.bluetoothScan.request();
@@ -47,15 +45,19 @@ class _LoginPageState extends State<LoginPage> {
       _scanning = true;
       _buddyNames.clear();
       _buddyDevices.clear();
+      _buddyIds.clear();
     });
 
     FlutterBlue flutterBlue = FlutterBlue.instance;
     List<BluetoothDevice> foundDevices = [];
     Set<String> nomes = {};
     Map<String, BluetoothDevice> devicesByName = {};
+    Map<String, String> idsByName = {};
 
     var subscription = flutterBlue.scan(timeout: const Duration(seconds: 5)).listen((scanResult) {
       final name = scanResult.device.name;
+      print('BLE scan detectado: ${scanResult.device.id} - $name');
+      // Garante que device seja único pelo id
       if (name.startsWith("DeskBuddy") && !foundDevices.any((d) => d.id == scanResult.device.id)) {
         foundDevices.add(scanResult.device);
       }
@@ -66,6 +68,7 @@ class _LoginPageState extends State<LoginPage> {
 
     for (final device in foundDevices) {
       try {
+        print('Tentando conectar em ${device.id}');
         await device.connect(timeout: const Duration(seconds: 5));
         final services = await device.discoverServices();
         for (final service in services) {
@@ -74,14 +77,19 @@ class _LoginPageState extends State<LoginPage> {
               if (c.uuid.toString().toLowerCase() == characteristicUuid) {
                 final value = await c.read();
                 final jsonStr = String.fromCharCodes(value);
+                print('Characteristic do Buddy lido: $jsonStr');
                 try {
                   final json = jsonDecode(jsonStr);
                   if (json['nome'] != null) {
                     final nomeBuddy = json['nome'].toString();
                     nomes.add(nomeBuddy);
                     devicesByName[nomeBuddy] = device;
+                    idsByName[nomeBuddy] = device.id.toString();
+                    print('Buddy detectado no JSON: $nomeBuddy (${device.id})');
                   }
-                } catch (_) {}
+                } catch (e) {
+                  print('Erro ao decodificar JSON: $e');
+                }
               }
             }
           }
@@ -89,6 +97,7 @@ class _LoginPageState extends State<LoginPage> {
         await device.disconnect();
       } catch (e) {
         try { await device.disconnect(); } catch (_) {}
+        print('Erro ao conectar/lendo characteristic: $e');
       }
     }
 
@@ -96,6 +105,7 @@ class _LoginPageState extends State<LoginPage> {
       _scanning = false;
       _buddyNames = nomes.toList();
       _buddyDevices = devicesByName;
+      _buddyIds = idsByName;
     });
 
     if (_buddyNames.isEmpty) {
@@ -215,6 +225,7 @@ class _LoginPageState extends State<LoginPage> {
                           child: ListTile(
                             leading: const Icon(Icons.toys, color: Colors.orange),
                             title: Text(nome),
+                            subtitle: Text(_buddyIds[nome] ?? ""), // Mostra o id BLE (debug)
                             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                             onTap: () => _selecionarBuddy(nome),
                           ),
