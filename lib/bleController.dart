@@ -46,7 +46,9 @@ class BleController {
 
     try {
       var subscription = flutterBlue.scan(timeout: Duration(seconds: 8)).listen((scanResult) async {
-        if (scanResult.device.name == deviceName && !found) {
+        if (scanResult.device.name != null &&
+            scanResult.device.name.startsWith("DeskBuddy") &&
+            !found) {
           found = true;
           status = "Dispositivo encontrado! Conectando...";
 
