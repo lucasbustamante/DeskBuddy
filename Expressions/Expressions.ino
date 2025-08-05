@@ -6,6 +6,7 @@
 #include <BLEServer.h>
 #include <BLEScan.h>
 #include <EEPROM.h>
+#include <ESP32Servo.h>
 #include "images.h"
 #include "controller.h"
 
@@ -18,39 +19,43 @@
 #define SENHA "oi23"
 #define BUTTON_PIN 6
 #define EEPROM_SIZE 1024
-#define MAX_INTERACTION_INTERVAL 100
 
 #define SERVICE_UUID        "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 #define CHARACTERISTIC_UUID "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
 #define MAX_ENCONTRADOS 10
 #define TAM_NOME 16
+#define SERVO_PIN 10
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 BLECharacteristic *pCharacteristic;
+Servo emoteServo;
 
-// Emoções gerais
 int pctFeliz = 70, pctTriste = 10, pctEntediado = 10, pctBravo = 10, pctNormal = 0, pctApaixonado = 0;
 unsigned long lastInteractionTime = 0;
 unsigned long lastButtonTime = 0;
 String estadoDisplay = "";
 unsigned long estadoDisplayTimeout = 0;
+String forcedEmotion = "";
 
-// Buffer circular dos encontrados
 String encontrados[MAX_ENCONTRADOS];
 int idxEncontrado = 0;
 int countEncontrados = 0;
 
-// Relacionamento e interações por buddy
 struct Relacao {
   char nome[TAM_NOME];
-  bool gosta; // true = gosta, false = não gosta
-  int contador; // número de interações
+  bool gosta;
+  int contador;
   bool relacaoDefinida;
   bool segundaChanceConcedida;
 };
-
 Relacao relacoes[MAX_ENCONTRADOS];
 
+// -- NOVO: controle de animações periódicas --
+unsigned long lastBravoAnim = 0;   // última vez que bateu bravo
+unsigned long lastFelizAnim = 0;   // última vez que balançou feliz
+const unsigned long ANIM_INTERVAL = 7000; // 10 segundos
+
+// === UTILITÁRIOS GERAIS E EMOÇÃO ===
 void limpaTodaEEPROM() {
   EEPROM.begin(EEPROM_SIZE);
   for (int i = 0; i < EEPROM_SIZE; i++) {
@@ -60,7 +65,7 @@ void limpaTodaEEPROM() {
 }
 
 void salvaRelacoesEEPROM() {
-  int addr = 10; // 0-9 para emoções globais
+  int addr = 10;
   EEPROM.put(addr, relacoes);
   EEPROM.commit();
 }
@@ -69,7 +74,6 @@ void carregaRelacoesEEPROM() {
   EEPROM.get(addr, relacoes);
 }
 
-// ---- PERSISTÊNCIA DO BUFFER DE ENCONTRADOS ----
 void salvaBufferEncontradosEEPROM() {
   int addr = 10 + sizeof(relacoes);
   EEPROM.put(addr, encontrados);
@@ -98,7 +102,6 @@ int buscaRelacao(const String& nome) {
 int defineRelacaoIndex(const String& nome) {
   int idx = buscaRelacao(nome);
   if (idx == -1) {
-    // Procura slot vazio
     for (int i = 0; i < MAX_ENCONTRADOS; i++) {
       if (relacoes[i].nome[0] == 0) {
         nome.toCharArray(relacoes[i].nome, TAM_NOME);
@@ -114,15 +117,14 @@ int defineRelacaoIndex(const String& nome) {
   return idx;
 }
 
-// Só use essa função para resetar manualmente!
 void inicializaEEPROMSempre() {
   EEPROM.begin(EEPROM_SIZE);
-  EEPROM.write(0, 70); // Feliz
-  EEPROM.write(1, 10); // Triste
-  EEPROM.write(2, 10); // Entediado
-  EEPROM.write(3, 10); // Bravo
-  EEPROM.write(4, 0);  // Normal
-  EEPROM.write(5, 0);  // Apaixonado
+  EEPROM.write(0, 70);
+  EEPROM.write(1, 10);
+  EEPROM.write(2, 10);
+  EEPROM.write(3, 10);
+  EEPROM.write(4, 0);
+  EEPROM.write(5, 0);
   EEPROM.commit();
 }
 
@@ -167,6 +169,7 @@ void normalizaEmocoesAvancada(bool acaoFoiFeliz = false, bool acaoFoiTriste = fa
 }
 
 String getDominantEmotion() {
+  if (forcedEmotion.length() > 0) return forcedEmotion;
   int lista[4] = {pctFeliz, pctTriste, pctEntediado, pctBravo};
   const char* nomes[4] = {"feliz", "triste", "entediado", "bravo"};
   int idx = 0;
@@ -211,8 +214,38 @@ String getHumorJSON() {
   return json;
 }
 
+// --- ANIMAÇÃO DO SERVO ---
+void batidaAntenaBravo() {
+  for (int i = 0; i < 4; i++) {
+    emoteServo.write(180);
+    delay(120);
+    emoteServo.write(140);
+    delay(120);
+  }
+  emoteServo.write(25);
+}
+
+void balancoAntenaFeliz() {  // <-- NOVO
+  for (int i = 0; i < 3; i++) {
+    emoteServo.write(80);
+    delay(90);
+    emoteServo.write(40);
+    delay(90);
+  }
+  emoteServo.write(80); // posição feliz
+}
+
+void moveServoEmocao(String emocao) {
+  if (emocao == "feliz")        balancoAntenaFeliz();
+  else if (emocao == "triste")  emoteServo.write(0);
+  else if (emocao == "entediado") emoteServo.write(20);
+  else if (emocao == "bravo")   batidaAntenaBravo();
+  else /* normal */             emoteServo.write(100);
+}
+
 void showEmoteOnDisplay() {
   String dominante = getDominantEmotion();
+  moveServoEmocao(dominante);
   if (dominante == "feliz") {
     happy(0,0,75);
   } else if (dominante == "triste") {
@@ -252,13 +285,58 @@ bool jaTemNomeNoBuffer(String nome) {
   return false;
 }
 
+// --- NOVO: Serial pode enviar SERVO:<grau> para testes ---
+void processSerialCommands() {
+  static String input = "";
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\r' || c == '\n') {
+      input.trim();
+      if (input.length() > 0) {
+        input.toLowerCase();
+        if (input == "feliz") {
+          forcedEmotion = "feliz";
+          Serial.println("[EMOÇÃO FORÇADA] feliz");
+        } else if (input == "triste") {
+          forcedEmotion = "triste";
+          Serial.println("[EMOÇÃO FORÇADA] triste");
+        } else if (input == "entediado") {
+          forcedEmotion = "entediado";
+          Serial.println("[EMOÇÃO FORÇADA] entediado");
+        } else if (input == "bravo") {
+          forcedEmotion = "bravo";
+          Serial.println("[EMOÇÃO FORÇADA] bravo");
+        } else if (input == "normal") {
+          forcedEmotion = "normal";
+          Serial.println("[EMOÇÃO FORÇADA] normal");
+        } else if (input == "auto") {
+          forcedEmotion = "";
+          Serial.println("[EMOÇÃO FORÇADA] desativada (modo automático)");
+        } else if (input.startsWith("servo:")) { // <-- NOVO comando
+          int grau = input.substring(6).toInt();
+          grau = constrain(grau, 0, 180);
+          emoteServo.write(grau);
+          Serial.print("[SERVO] Indo para ");
+          Serial.print(grau);
+          Serial.println(" graus.");
+        } else {
+          Serial.print("Comando desconhecido: ");
+          Serial.println(input);
+        }
+        showEmoteOnDisplay();
+      }
+      input = "";
+    } else {
+      input += c;
+    }
+  }
+}
+
 void setup() {
   Serial.begin(115200);
-
   Wire.begin(2, 3);
 
-  // === DESCOMENTE ESTA LINHA PARA LIMPAR A EEPROM AO GRAVAR ===
-  limpaTodaEEPROM();   // <--- DESCOMENTE para apagar tudo na EEPROM
+  //limpaTodaEEPROM();
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
     Serial.println(F("Erro ao inicializar o display OLED"));
@@ -280,9 +358,12 @@ void setup() {
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
+  emoteServo.attach(SERVO_PIN);
+  emoteServo.write(0);
+
   loadHumorFromEEPROM();
 
-  BLEDevice::init(String("DeskBuddy: ") + NAME);  // <-- Nome completo no BLE Advertising
+  BLEDevice::init(String("DeskBuddy: ") + NAME);
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
   BLEService *pService = pServer->createService(SERVICE_UUID);
@@ -298,9 +379,28 @@ void setup() {
   BLEDevice::getScan()->setActiveScan(true);
 
   showEmoteOnDisplay();
+
+  Serial.println("Digite FELIZ, TRISTE, ENTEDIADO, BRAVO, NORMAL ou AUTO para forçar a emoção.");
+  Serial.println("Ou digite SERVO:<graus> para testar manualmente (ex: SERVO:45).");
 }
 
 void loop() {
+  processSerialCommands();
+
+  String dom = getDominantEmotion();
+
+  // Animação periódica bravo
+  if (dom == "bravo" && millis() - lastBravoAnim > ANIM_INTERVAL) {
+    batidaAntenaBravo();
+    lastBravoAnim = millis();
+  }
+
+  // Animação periódica feliz
+  if (dom == "feliz" && millis() - lastFelizAnim > ANIM_INTERVAL) {
+    balancoAntenaFeliz();
+    lastFelizAnim = millis();
+  }
+
   // Botão de carinho
   if (digitalRead(BUTTON_PIN) == LOW && (millis() - lastButtonTime > 500)) {
     lastButtonTime = millis();
@@ -318,12 +418,14 @@ void loop() {
     happy(0,0,75);
     estadoDisplay = "";
     pCharacteristic->setValue(getHumorJSON().c_str());
+    moveServoEmocao("feliz");
     Serial.println("[CARINHO] Botão pressionado. Felicidade +3, Tristeza/Bravo/Entediado -1.");
+    lastFelizAnim = millis(); // reinicia o timer do balançar para não dar duplo trigger
   }
 
   // Decaimento por inatividade (3 segundos debug)
   static unsigned long lastDecay = millis();
-  if (millis() - lastDecay > 3000) {
+  if (millis() - lastDecay > 3000 && forcedEmotion.length() == 0) {
     lastDecay = millis();
     if (pctFeliz > 0) {
       pctFeliz -= 5;
@@ -346,7 +448,6 @@ void loop() {
   BLEScan* pBLEScan = BLEDevice::getScan();
   BLEScanResults* results = pBLEScan->start(1, false);
 
-  int maxRSSI = -100;
   String nomeBuddyAtual = "";
   bool emInteracao = false;
 
@@ -357,7 +458,6 @@ void loop() {
       String nomePuro = extraiNomeDeskBuddy(nameStd);
       nomeBuddyAtual = nomePuro;
 
-      // Buffer de encontrados
       if (nomePuro.length() > 0 && nomePuro != String(NAME) && !jaTemNomeNoBuffer(nomePuro)) {
         encontrados[idxEncontrado] = nomePuro;
         idxEncontrado = (idxEncontrado + 1) % MAX_ENCONTRADOS;
@@ -367,8 +467,6 @@ void loop() {
 
       int idx = defineRelacaoIndex(nomePuro);
       Relacao &rel = relacoes[idx];
-
-      // Contador de interações é persistente e nunca reseta!
       rel.contador++;
       salvaRelacoesEEPROM();
 
@@ -377,11 +475,9 @@ void loop() {
       Serial.print(" | Interações: ");
       Serial.println(rel.contador);
 
-      // --- Lógica das chances ---
-      // Primeira avaliação: 2 interações
       if (!rel.relacaoDefinida && rel.contador >= 2) {
         int sorte = random(100);
-        rel.gosta = (sorte < 70); // 70% gosta
+        rel.gosta = (sorte < 70);
         rel.relacaoDefinida = true;
         rel.segundaChanceConcedida = false;
         salvaRelacoesEEPROM();
@@ -391,10 +487,9 @@ void loop() {
           Serial.println("[RELACAO] Após 2 interações: NÃO GOSTA (30%) - Segunda chance após 4 interações.");
         }
       }
-      // Segunda chance: após mais 4 interações, se ainda não gosta
       else if (rel.relacaoDefinida && !rel.gosta && !rel.segundaChanceConcedida && rel.contador >= 6) {
         int sorte2 = random(100);
-        rel.gosta = (sorte2 < 50); 
+        rel.gosta = (sorte2 < 50);
         rel.segundaChanceConcedida = true;
         salvaRelacoesEEPROM();
         if (rel.gosta) {
@@ -404,12 +499,11 @@ void loop() {
         }
       }
 
-      // Emoções por relacionamento
       if (rel.relacaoDefinida && (!rel.gosta || (rel.segundaChanceConcedida && !rel.gosta))) {
-        // Não gosta: angry, aumenta raiva/tédio
         pctEntediado = min(100, pctEntediado + 1);
         pctBravo = min(100, pctBravo + 1);
         angry(0, 0, 75);
+        moveServoEmocao("bravo");
         saveHumorToEEPROM();
         pCharacteristic->setValue(getHumorJSON().c_str());
         Serial.print("[EMOCAO] NÃO gosta de ");
@@ -419,12 +513,14 @@ void loop() {
         Serial.print("/");
         Serial.print(pctBravo);
         Serial.println(")");
+        lastBravoAnim = millis();
       } else if (rel.relacaoDefinida && rel.gosta) {
-        // Gosta: happy, aumenta felicidade, reduz triste/tédio/raiva
         if (pctTriste > 0) pctTriste--;
         if (pctEntediado > 0) pctEntediado--;
         if (pctBravo > 0) pctBravo--;
         pctFeliz = min(100, pctFeliz + 1);
+        happy(0, 0, 75);
+        moveServoEmocao("feliz");
         saveHumorToEEPROM();
         pCharacteristic->setValue(getHumorJSON().c_str());
         Serial.print("[EMOCAO] Gosta de ");
@@ -432,14 +528,14 @@ void loop() {
         Serial.print(". Felicidade +1 (");
         Serial.print(pctFeliz);
         Serial.println("), tristeza/tédio/raiva -1.");
-        happy(0, 0, 75);
+        lastFelizAnim = millis();
       } else {
-        // Suspicion nos dois primeiros encontros
         suspicion(0, 0, 75);
+        moveServoEmocao("normal");
       }
 
       emInteracao = true;
-      break; // só um buddy por vez
+      break;
     }
   }
 
