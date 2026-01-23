@@ -16,8 +16,8 @@
 #define OLED_RESET -1
 #define OLED_ADDR 0x3C
 
-#define NAME "Blico"
-#define SENHA "oi53"
+#define NAME "Kizmo"
+#define SENHA "oi23"
 #define BUTTON_PIN 6
 #define EEPROM_SIZE 1024
 
@@ -29,19 +29,14 @@
 #define BUZZER_PIN 10
 
 // ======== AJUSTES IMPORTANTES ========
-// Intervalo das animações/sons periódicos
 const unsigned long ANIM_INTERVAL = 7000; // 7s
-
-// Decaimento (debug: 3s). Se quiser "real", troca pra 60*1000, etc.
 const unsigned long DECAY_INTERVAL_MS = 3000;
 
-// Regras de relacionamento / amor
-const int INTERACOES_PRA_DEFINIR_RELACAO = 2;   // depois disso define "gosta" (70/30)
-const int INTERACOES_PRA_SEGUNDA_CHANCE  = 6;   // segunda chance (se não gostava)
-const int INTERACOES_PRA_APAIXONAR       = 10;  // depois disso pode virar "apaixonado"
-const int CHANCE_APAIXONAR_PERCENT       = 25;  // 25% (ajustável)
+const int INTERACOES_PRA_DEFINIR_RELACAO = 2;
+const int INTERACOES_PRA_SEGUNDA_CHANCE  = 6;
+const int INTERACOES_PRA_APAIXONAR       = 10;
+const int CHANCE_APAIXONAR_PERCENT       = 25;
 
-// Emoções: passos de mudança
 const int CARINHO_UP_FELIZ = 3;
 const int CARINHO_DOWN_OUTRAS = 1;
 
@@ -49,6 +44,16 @@ const int CARINHO_DOWN_OUTRAS = 1;
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 BLECharacteristic *pCharacteristic;
 BuzzerScheduler buzzer;
+
+// ======== BLE connection state ========
+volatile bool bleConnected = false;
+
+// ======== Dominant emotion sound repeat control ========
+String lastDominantEmotion = "";
+uint8_t dominantSameCycles = 0;
+
+// ======== BLE scan scheduler ========
+unsigned long lastScanMs = 0;
 
 // ======== ESTADO ========
 int pctFeliz = 70, pctTriste = 10, pctEntediado = 10, pctBravo = 10, pctNormal = 0, pctApaixonado = 0;
@@ -72,9 +77,8 @@ struct Relacao {
   bool relacaoDefinida;
   bool segundaChanceConcedida;
 
-  // --- NOVO: amor ---
-  bool apaixonado;     // se já ficou apaixonado por esse buddy
-  int afinidade;       // sobe quando interage e gosta, desce se não gosta
+  bool apaixonado;
+  int afinidade;
 };
 Relacao relacoes[MAX_ENCONTRADOS];
 
@@ -176,7 +180,6 @@ int defineRelacaoIndex(const String& nome) {
         relacoes[i].relacaoDefinida = false;
         relacoes[i].segundaChanceConcedida = false;
 
-        // novo
         relacoes[i].apaixonado = false;
         relacoes[i].afinidade = 0;
 
@@ -208,16 +211,13 @@ static inline void clampAll() {
   pctApaixonado = constrain(pctApaixonado, 0, 100);
 }
 
-// Normalização simples: mantém tudo dentro de 0..100 e tenta evitar explodir o “clima”
 void normalizaEmocoesAvancada(bool acaoFoiFeliz = false, bool acaoFoiTriste = false, bool acaoFoiBravo = false, bool acaoFoiEntediado = false, bool acaoFoiApaixonado = false) {
-  // Se apaixonado subir muito, reduz negativos
   if (acaoFoiApaixonado && pctApaixonado > 50) {
     if (pctTriste > 0) pctTriste = max(0, pctTriste - 1);
     if (pctEntediado > 0) pctEntediado = max(0, pctEntediado - 1);
     if (pctBravo > 0) pctBravo = max(0, pctBravo - 1);
   }
 
-  // Se ficou “feliz” e estouraria o teto com negativos, corta negativos
   int maxNeg = max(pctTriste, pctBravo);
   if (acaoFoiFeliz && pctFeliz + maxNeg > 100) {
     int excesso = pctFeliz + maxNeg - 100;
@@ -231,7 +231,6 @@ void normalizaEmocoesAvancada(bool acaoFoiFeliz = false, bool acaoFoiTriste = fa
 String getDominantEmotion() {
   if (forcedEmotion.length() > 0) return forcedEmotion;
 
-  // NOVO: apaixonado entra como dominante também
   struct Pair { int v; const char* n; };
   Pair lista[] = {
     {pctApaixonado, "apaixonado"},
@@ -283,7 +282,6 @@ String getHumorJSON() {
 }
 
 // ======== BUZZER (não-bloqueante) ========
-// Atenção: “volume” real é hardware. Aqui a gente só toca padrões.
 String lastSoundEmotion = "";
 unsigned long lastEmotionSoundAt = 0;
 
@@ -301,8 +299,28 @@ void playEmotionSoundNow(const String &emocao, bool variantShort=false) {
   lastEmotionSoundAt = millis();
 }
 
-// Se a sua BuzzerScheduler tiver algo como setVolume()/setDuty(), é AQUI que você colocaria.
-// Exemplo (SÓ SE EXISTIR NO SEU .h): buzzer.setVolume(255);
+// >>> NOVO: som baseado na emoção MOSTRADA na tela (mesmo que não seja dominante)
+uint8_t soundForScreenEmotion(const String &telaEmocao, bool variantShort=false) {
+  // Mapeia emoções de “tela”
+  if (telaEmocao == "feliz")        return soundForEmotion("feliz", variantShort);
+  if (telaEmocao == "bravo")        return soundForEmotion("bravo", false);
+  if (telaEmocao == "apaixonado")   return soundForEmotion("apaixonado", variantShort);
+  if (telaEmocao == "triste")       return soundForEmotion("triste", false);
+  if (telaEmocao == "entediado")    return soundForEmotion("entediado", false);
+
+  // “suspeita”/neutro: usa um som de “conexão/curioso”
+  if (telaEmocao == "suspeita")     return S_CONNECTION;
+
+  // fallback
+  return S_CONNECTION;
+}
+
+void playScreenEmotionSoundNow(const String &telaEmocao, bool variantShort=false) {
+  buzzer.playSound(soundForScreenEmotion(telaEmocao, variantShort));
+  lastEmotionSoundAt = millis();
+}
+// <<< FIM NOVO
+
 void buzzerMaxIfSupported() {
   // intencionalmente vazio pra não quebrar compilação
 }
@@ -311,7 +329,28 @@ void buzzerMaxIfSupported() {
 void showEmoteOnDisplay() {
   String dominante = getDominantEmotion();
 
-  // As animações (controller.h) podem chamar delay interno; ideal: ter smartDelay() lá.
+  bool shouldPlay = false;
+  bool emotionChanged = (dominante != lastDominantEmotion);
+
+  if (emotionChanged) {
+    lastDominantEmotion = dominante;
+    dominantSameCycles = 0;
+    shouldPlay = true;
+  } else {
+    dominantSameCycles++;
+    if (dominantSameCycles >= 3) {
+      dominantSameCycles = 0;
+      shouldPlay = true;
+    }
+  }
+
+  if (shouldPlay) {
+    if (emotionChanged || !buzzer.isPlaying()) {
+      bool shortVariant = (dominante == "feliz" || dominante == "apaixonado");
+      playEmotionSoundNow(dominante, shortVariant);
+    }
+  }
+
   if (dominante == "apaixonado") {
     loving(0,0,75);
   } else if (dominante == "feliz") {
@@ -325,22 +364,18 @@ void showEmoteOnDisplay() {
   } else {
     normal(0,0,75);
   }
-
-  // Som ao trocar de emoção dominante
-  if (dominante != lastSoundEmotion) {
-    lastSoundEmotion = dominante;
-    playEmotionSoundNow(dominante);
-  }
 }
 
 // ======== BLE ========
 class MyServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
+    bleConnected = true;
     Serial.println("BLE Conectado");
   }
   void onDisconnect(BLEServer* pServer) {
+    bleConnected = false;
     Serial.println("BLE Desconectado");
-    delay(200);
+    delay(50);
     pServer->getAdvertising()->start();
   }
 };
@@ -376,7 +411,6 @@ void processSerialCommands() {
 
 // ======== LÓGICA SOCIAL / AMOR ========
 void aplicaEfeitoGosta(Relacao &rel, const String &nomePuro) {
-  // afinidade sobe
   rel.afinidade = min(100, rel.afinidade + 2);
 
   if (pctTriste > 0) pctTriste--;
@@ -384,11 +418,10 @@ void aplicaEfeitoGosta(Relacao &rel, const String &nomePuro) {
   if (pctBravo > 0) pctBravo--;
   pctFeliz = min(100, pctFeliz + 1);
 
-  // chance de virar apaixonado depois de um tempo + afinidade alta
   if (!rel.apaixonado && rel.contador >= INTERACOES_PRA_APAIXONAR) {
     int chance = CHANCE_APAIXONAR_PERCENT;
-    if (rel.afinidade >= 30) chance += 10;   // bônus
-    if (rel.afinidade >= 60) chance += 10;   // bônus
+    if (rel.afinidade >= 30) chance += 10;
+    if (rel.afinidade >= 60) chance += 10;
     chance = min(chance, 80);
 
     int sorte = random(100);
@@ -405,7 +438,6 @@ void aplicaEfeitoGosta(Relacao &rel, const String &nomePuro) {
     }
   }
 
-  // Se já apaixonado, reforça um pouquinho
   if (rel.apaixonado) {
     pctApaixonado = min(100, pctApaixonado + 2);
     pctFeliz = min(100, pctFeliz + 1);
@@ -415,13 +447,11 @@ void aplicaEfeitoGosta(Relacao &rel, const String &nomePuro) {
 }
 
 void aplicaEfeitoNaoGosta(Relacao &rel, const String &nomePuro) {
-  // afinidade cai
   rel.afinidade = max(-100, rel.afinidade - 2);
 
   pctEntediado = min(100, pctEntediado + 1);
   pctBravo     = min(100, pctBravo + 1);
 
-  // se era apaixonado e começou a dar ruim, pode “quebrar o coração”
   if (rel.apaixonado) {
     pctApaixonado = max(0, pctApaixonado - 3);
     pctTriste = min(100, pctTriste + 2);
@@ -431,10 +461,7 @@ void aplicaEfeitoNaoGosta(Relacao &rel, const String &nomePuro) {
 }
 
 void aplicaEfeitoSuspeita(Relacao &rel) {
-  // neutro: um “quê” de suspeita + micro-ajuste
-  rel.afinidade = constrain(rel.afinidade + (random(3) - 1), -100, 100); // -1,0,+1
-
-  // nada pesado, só desenha a suspeita
+  rel.afinidade = constrain(rel.afinidade + (random(3) - 1), -100, 100);
 }
 
 // ======== SETUP/LOOP ========
@@ -474,6 +501,9 @@ void setup() {
   BLEDevice::init(String("DeskBuddy: ") + NAME);
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
+  pServer->getAdvertising()->setMinPreferred(0x06);
+  pServer->getAdvertising()->setMinPreferred(0x12);
+
   BLEService *pService = pServer->createService(SERVICE_UUID);
 
   pCharacteristic = pService->createCharacteristic(
@@ -495,22 +525,6 @@ void loop() {
   processSerialCommands();
   buzzer.update();
 
-  String dom = getDominantEmotion();
-
-  // Sons periódicos
-  if (dom == "bravo" && millis() - lastBravoAnim > ANIM_INTERVAL) {
-    playEmotionSoundNow("bravo");
-    lastBravoAnim = millis();
-  }
-  if (dom == "feliz" && millis() - lastFelizAnim > ANIM_INTERVAL) {
-    playEmotionSoundNow("feliz", true);
-    lastFelizAnim = millis();
-  }
-  if (dom == "apaixonado" && millis() - lastLoveAnim > ANIM_INTERVAL) {
-    playEmotionSoundNow("apaixonado", true);
-    lastLoveAnim = millis();
-  }
-
   // Botão de carinho
   if (digitalRead(BUTTON_PIN) == LOW && (millis() - lastButtonTime > 500)) {
     lastButtonTime = millis();
@@ -526,10 +540,11 @@ void loop() {
     saveHumorToEEPROM();
 
     pCharacteristic->setValue(getHumorJSON().c_str());
+    // som + tela (carinho sempre é feliz)
+    playScreenEmotionSoundNow("feliz", true);
     happy(0,0,75);
 
     Serial.println("[CARINHO] Felicidade +3, Tristeza/Bravo/Tédio -1.");
-    playEmotionSoundNow("feliz", true);
     lastFelizAnim = millis();
   }
 
@@ -538,7 +553,6 @@ void loop() {
   if (millis() - lastDecay > DECAY_INTERVAL_MS && forcedEmotion.length() == 0) {
     lastDecay = millis();
 
-    // amor vai esfriando se não reforçar
     if (pctApaixonado > 0) pctApaixonado = max(0, pctApaixonado - 1);
 
     if (pctFeliz > 0) {
@@ -558,109 +572,131 @@ void loop() {
     pCharacteristic->setValue(getHumorJSON().c_str());
   }
 
-  // Scan BLE
-  BLEScan* pBLEScan = BLEDevice::getScan();
-  BLEScanResults* results = pBLEScan->start(1, false);
+  // Scan BLE (agendado)
+  static BLEScan* pBLEScan = BLEDevice::getScan();
+
+  const unsigned long SCAN_INTERVAL_DISCONNECTED_MS = 1200;
+  const unsigned long SCAN_INTERVAL_CONNECTED_MS    = 6000;
+
+  bool ranScan = false;
+  BLEScanResults* results = nullptr;
+
+  unsigned long scanEvery = bleConnected ? SCAN_INTERVAL_CONNECTED_MS : SCAN_INTERVAL_DISCONNECTED_MS;
+  if (millis() - lastScanMs >= scanEvery) {
+    lastScanMs = millis();
+    ranScan = true;
+
+    pBLEScan->setActiveScan(!bleConnected);
+    results = pBLEScan->start(1, false);
+  }
 
   bool emInteracao = false;
 
-  for (int i = 0; i < results->getCount(); i++) {
-    BLEAdvertisedDevice device = results->getDevice(i);
-    String nameStd = device.getName();
+  if (ranScan && results) {
+    for (int i = 0; i < results->getCount(); i++) {
+      BLEAdvertisedDevice device = results->getDevice(i);
+      String nameStd = device.getName();
 
-    if (nameStd.length() > 0 && nameStd.indexOf("DeskBuddy") != -1) {
-      String nomePuro = extraiNomeDeskBuddy(nameStd);
+      if (nameStd.length() > 0 && nameStd.indexOf("DeskBuddy") != -1) {
+        String nomePuro = extraiNomeDeskBuddy(nameStd);
 
-      if (nomePuro.length() > 0 && nomePuro != String(NAME) && !jaTemNomeNoBuffer(nomePuro)) {
-        encontrados[idxEncontrado] = nomePuro;
-        idxEncontrado = (idxEncontrado + 1) % MAX_ENCONTRADOS;
-        if (countEncontrados < MAX_ENCONTRADOS) countEncontrados++;
-        salvaBufferEncontradosEEPROM();
-      }
-
-      int idx = defineRelacaoIndex(nomePuro);
-      Relacao &rel = relacoes[idx];
-      rel.contador++;
-
-      Serial.print("[BUDDY] Encontrado: ");
-      Serial.print(nomePuro);
-      Serial.print(" | Interações: ");
-      Serial.println(rel.contador);
-
-      // Define relação na 2ª interação
-      if (!rel.relacaoDefinida && rel.contador >= INTERACOES_PRA_DEFINIR_RELACAO) {
-        int sorte = random(100);
-        rel.gosta = (sorte < 70);
-        rel.relacaoDefinida = true;
-        rel.segundaChanceConcedida = false;
-
-        if (rel.gosta) {
-          Serial.println("[RELACAO] Após 2 interações: GOSTA (70%)");
-        } else {
-          Serial.println("[RELACAO] Após 2 interações: NÃO GOSTA (30%) - Segunda chance após 6 interações.");
+        if (nomePuro.length() > 0 && nomePuro != String(NAME) && !jaTemNomeNoBuffer(nomePuro)) {
+          encontrados[idxEncontrado] = nomePuro;
+          idxEncontrado = (idxEncontrado + 1) % MAX_ENCONTRADOS;
+          if (countEncontrados < MAX_ENCONTRADOS) countEncontrados++;
+          salvaBufferEncontradosEEPROM();
         }
-      }
-      // Segunda chance (se não gostava)
-      else if (rel.relacaoDefinida && !rel.gosta && !rel.segundaChanceConcedida && rel.contador >= INTERACOES_PRA_SEGUNDA_CHANCE) {
-        int sorte2 = random(100);
-        rel.gosta = (sorte2 < 50);
-        rel.segundaChanceConcedida = true;
 
-        if (rel.gosta) Serial.println("[RELACAO] Segunda chance: AGORA GOSTA (50%)");
-        else Serial.println("[RELACAO] Segunda chance: CONTINUA NÃO GOSTANDO (50%)");
-      }
+        int idx = defineRelacaoIndex(nomePuro);
+        Relacao &rel = relacoes[idx];
+        rel.contador++;
 
-      // Aplica emoção conforme a relação
-      if (rel.relacaoDefinida) {
-        if (rel.gosta) {
-          aplicaEfeitoGosta(rel, nomePuro);
+        Serial.print("[BUDDY] Encontrado: ");
+        Serial.print(nomePuro);
+        Serial.print(" | Interações: ");
+        Serial.println(rel.contador);
 
-          // Exibe: se apaixonado, mostra loving; senão happy
-          if (rel.apaixonado || pctApaixonado > 50) {
-            loving(0, 0, 75);
-            lastLoveAnim = millis();
+        // Define relação na 2ª interação
+        if (!rel.relacaoDefinida && rel.contador >= INTERACOES_PRA_DEFINIR_RELACAO) {
+          int sorte = random(100);
+          rel.gosta = (sorte < 70);
+          rel.relacaoDefinida = true;
+          rel.segundaChanceConcedida = false;
+
+          if (rel.gosta) Serial.println("[RELACAO] Após 2 interações: GOSTA (70%)");
+          else Serial.println("[RELACAO] Após 2 interações: NÃO GOSTA (30%) - Segunda chance após 6 interações.");
+        }
+        // Segunda chance (se não gostava)
+        else if (rel.relacaoDefinida && !rel.gosta && !rel.segundaChanceConcedida && rel.contador >= INTERACOES_PRA_SEGUNDA_CHANCE) {
+          int sorte2 = random(100);
+          rel.gosta = (sorte2 < 50);
+          rel.segundaChanceConcedida = true;
+
+          if (rel.gosta) Serial.println("[RELACAO] Segunda chance: AGORA GOSTA (50%)");
+          else Serial.println("[RELACAO] Segunda chance: CONTINUA NÃO GOSTANDO (50%)");
+        }
+
+        // Aplica emoção conforme a relação
+        if (rel.relacaoDefinida) {
+          if (rel.gosta) {
+            aplicaEfeitoGosta(rel, nomePuro);
+
+            if (rel.apaixonado || pctApaixonado > 50) {
+              // >>> NOVO: som da emoção que vai aparecer na tela
+              playScreenEmotionSoundNow("apaixonado", true);
+              loving(0, 0, 75);
+              lastLoveAnim = millis();
+            } else {
+              // >>> NOVO: som da emoção que vai aparecer na tela
+              playScreenEmotionSoundNow("feliz", true);
+              happy(0, 0, 75);
+              lastFelizAnim = millis();
+            }
+
+            Serial.print("[EMOCAO] Gosta de ");
+            Serial.print(nomePuro);
+            Serial.print(". Feliz=");
+            Serial.print(pctFeliz);
+            Serial.print(" Amor=");
+            Serial.print(pctApaixonado);
+            Serial.print(" Afinidade=");
+            Serial.println(rel.afinidade);
+
           } else {
-            happy(0, 0, 75);
-            lastFelizAnim = millis();
+            aplicaEfeitoNaoGosta(rel, nomePuro);
+
+            // >>> NOVO: som da emoção que vai aparecer na tela (bravo)
+            playScreenEmotionSoundNow("bravo", false);
+            angry(0, 0, 75);
+            lastBravoAnim = millis();
+
+            Serial.print("[EMOCAO] NÃO gosta de ");
+            Serial.print(nomePuro);
+            Serial.print(". Tédio=");
+            Serial.print(pctEntediado);
+            Serial.print(" Raiva=");
+            Serial.print(pctBravo);
+            Serial.print(" Amor=");
+            Serial.print(pctApaixonado);
+            Serial.print(" Afinidade=");
+            Serial.println(rel.afinidade);
           }
-
-          Serial.print("[EMOCAO] Gosta de ");
-          Serial.print(nomePuro);
-          Serial.print(". Feliz=");
-          Serial.print(pctFeliz);
-          Serial.print(" Amor=");
-          Serial.print(pctApaixonado);
-          Serial.print(" Afinidade=");
-          Serial.println(rel.afinidade);
-
         } else {
-          aplicaEfeitoNaoGosta(rel, nomePuro);
-          angry(0, 0, 75);
-          lastBravoAnim = millis();
+          aplicaEfeitoSuspeita(rel);
 
-          Serial.print("[EMOCAO] NÃO gosta de ");
-          Serial.print(nomePuro);
-          Serial.print(". Tédio=");
-          Serial.print(pctEntediado);
-          Serial.print(" Raiva=");
-          Serial.print(pctBravo);
-          Serial.print(" Amor=");
-          Serial.print(pctApaixonado);
-          Serial.print(" Afinidade=");
-          Serial.println(rel.afinidade);
+          // >>> NOVO: som da emoção que vai aparecer na tela (suspeita)
+          playScreenEmotionSoundNow("suspeita", false);
+          suspicion(0, 0, 75);
+          Serial.println("[EMOCAO] Relação indefinida: SUSPEITA.");
         }
-      } else {
-        aplicaEfeitoSuspeita(rel);
-        suspicion(0, 0, 75);
-        Serial.println("[EMOCAO] Relação indefinida: SUSPEITA.");
+
+        salvaRelacoesEEPROM();
+        saveHumorToEEPROM();
+        pCharacteristic->setValue(getHumorJSON().c_str());
+
+        emInteracao = true;
+        break;
       }
-
-      salvaRelacoesEEPROM();
-      saveHumorToEEPROM();
-      pCharacteristic->setValue(getHumorJSON().c_str());
-
-      emInteracao = true;
-      break;
     }
   }
 
