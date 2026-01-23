@@ -6,17 +6,17 @@
 #include <BLEServer.h>
 #include <BLEScan.h>
 #include <EEPROM.h>
-#include <ESP32Servo.h>
 #include "images.h"
 #include "controller.h"
 
+#include "BuzzerScheduler.h"
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
 #define OLED_ADDR 0x3C
 
-#define NAME "kizmo"
-#define SENHA "oi23"
+#define NAME "Silve"
+#define SENHA "oi24"
 #define BUTTON_PIN 6
 #define EEPROM_SIZE 1024
 
@@ -24,12 +24,11 @@
 #define CHARACTERISTIC_UUID "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
 #define MAX_ENCONTRADOS 10
 #define TAM_NOME 16
-#define SERVO_PIN 10
+#define BUZZER_PIN 10
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 BLECharacteristic *pCharacteristic;
-Servo emoteServo;
-
+BuzzerScheduler buzzer;
 int pctFeliz = 70, pctTriste = 10, pctEntediado = 10, pctBravo = 10, pctNormal = 0, pctApaixonado = 0;
 unsigned long lastInteractionTime = 0;
 unsigned long lastButtonTime = 0;
@@ -214,50 +213,51 @@ String getHumorJSON() {
   return json;
 }
 
-// --- ANIMAÇÃO DO SERVO ---
-void batidaAntenaBravo() {
-  for (int i = 0; i < 4; i++) {
-    emoteServo.write(180);
-    delay(120);
-    emoteServo.write(140);
-    delay(120);
-  }
-  emoteServo.write(25);
+// --- SOM NO BUZZER (NÃO-BLOQUEANTE) ---
+// Baseado nos padrões da biblioteca CuteBuzzerSounds (mas sem delay, para não travar o display)
+String lastSoundEmotion = "";
+unsigned long lastEmotionSoundAt = 0;
+
+uint8_t soundForEmotion(const String &emocao, bool variantShort=false) {
+  if (emocao == "feliz")        return variantShort ? S_HAPPY_SHORT : S_HAPPY;
+  if (emocao == "triste")       return S_SAD;
+  if (emocao == "entediado")    return S_SLEEPING;
+  if (emocao == "bravo")        return S_MODE3;
+  if (emocao == "apaixonado")   return S_CUDDLY;
+  // normal / fallback
+  return S_CONNECTION;
 }
 
-void balancoAntenaFeliz() {  // <-- NOVO
-  for (int i = 0; i < 3; i++) {
-    emoteServo.write(80);
-    delay(90);
-    emoteServo.write(40);
-    delay(90);
-  }
-  emoteServo.write(80); // posição feliz
-}
-
-void moveServoEmocao(String emocao) {
-  if (emocao == "feliz")        balancoAntenaFeliz();
-  else if (emocao == "triste")  emoteServo.write(0);
-  else if (emocao == "entediado") emoteServo.write(20);
-  else if (emocao == "bravo")   batidaAntenaBravo();
-  else /* normal */             emoteServo.write(100);
+void playEmotionSoundNow(const String &emocao, bool variantShort=false) {
+  buzzer.playSound(soundForEmotion(emocao, variantShort));
+  lastEmotionSoundAt = millis();
 }
 
 void showEmoteOnDisplay() {
   String dominante = getDominantEmotion();
-  moveServoEmocao(dominante);
+
+  // desenha a emoção (as animações internas chamam smartDelay(), que mantém o buzzer rodando)
   if (dominante == "feliz") {
     happy(0,0,75);
   } else if (dominante == "triste") {
     sad(0,0,75);
   } else if (dominante == "entediado") {
     bored(0,0,75);
+  } else if (dominante == "apaixonado") {
+    loving(0,0,75);
   } else if (dominante == "bravo") {
     angry(0,0,75);
   } else {
     normal(0,0,75);
   }
+
+  // som ao trocar de emoção dominante
+  if (dominante != lastSoundEmotion) {
+    lastSoundEmotion = dominante;
+    playEmotionSoundNow(dominante);
+  }
 }
+
 
 class MyServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
@@ -285,7 +285,7 @@ bool jaTemNomeNoBuffer(String nome) {
   return false;
 }
 
-// --- NOVO: Serial pode enviar SERVO:<grau> para testes ---
+// --- Serial: comandos para forçar emoção (feliz/triste/entediado/bravo/normal/auto) ---
 void processSerialCommands() {
   static String input = "";
   while (Serial.available()) {
@@ -312,13 +312,6 @@ void processSerialCommands() {
         } else if (input == "auto") {
           forcedEmotion = "";
           Serial.println("[EMOÇÃO FORÇADA] desativada (modo automático)");
-        } else if (input.startsWith("servo:")) { // <-- NOVO comando
-          int grau = input.substring(6).toInt();
-          grau = constrain(grau, 0, 180);
-          emoteServo.write(grau);
-          Serial.print("[SERVO] Indo para ");
-          Serial.print(grau);
-          Serial.println(" graus.");
         } else {
           Serial.print("Comando desconhecido: ");
           Serial.println(input);
@@ -336,7 +329,7 @@ void setup() {
   Serial.begin(115200);
   Wire.begin(2, 3);
 
-  //limpaTodaEEPROM();
+  limpaTodaEEPROM();
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
     Serial.println(F("Erro ao inicializar o display OLED"));
@@ -358,8 +351,7 @@ void setup() {
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  emoteServo.attach(SERVO_PIN);
-  emoteServo.write(0);
+  buzzer.begin(BUZZER_PIN);
 
   loadHumorFromEEPROM();
 
@@ -381,23 +373,23 @@ void setup() {
   showEmoteOnDisplay();
 
   Serial.println("Digite FELIZ, TRISTE, ENTEDIADO, BRAVO, NORMAL ou AUTO para forçar a emoção.");
-  Serial.println("Ou digite SERVO:<graus> para testar manualmente (ex: SERVO:45).");
-}
+  }
 
 void loop() {
   processSerialCommands();
+  buzzer.update();
 
   String dom = getDominantEmotion();
 
-  // Animação periódica bravo
+  // Som periódico bravo
   if (dom == "bravo" && millis() - lastBravoAnim > ANIM_INTERVAL) {
-    batidaAntenaBravo();
+    playEmotionSoundNow("bravo");
     lastBravoAnim = millis();
   }
 
-  // Animação periódica feliz
+  // Som periódico feliz
   if (dom == "feliz" && millis() - lastFelizAnim > ANIM_INTERVAL) {
-    balancoAntenaFeliz();
+    playEmotionSoundNow("feliz", true);
     lastFelizAnim = millis();
   }
 
@@ -418,8 +410,8 @@ void loop() {
     happy(0,0,75);
     estadoDisplay = "";
     pCharacteristic->setValue(getHumorJSON().c_str());
-    moveServoEmocao("feliz");
     Serial.println("[CARINHO] Botão pressionado. Felicidade +3, Tristeza/Bravo/Entediado -1.");
+    playEmotionSoundNow("feliz", true);
     lastFelizAnim = millis(); // reinicia o timer do balançar para não dar duplo trigger
   }
 
@@ -503,7 +495,6 @@ void loop() {
         pctEntediado = min(100, pctEntediado + 1);
         pctBravo = min(100, pctBravo + 1);
         angry(0, 0, 75);
-        moveServoEmocao("bravo");
         saveHumorToEEPROM();
         pCharacteristic->setValue(getHumorJSON().c_str());
         Serial.print("[EMOCAO] NÃO gosta de ");
@@ -520,7 +511,6 @@ void loop() {
         if (pctBravo > 0) pctBravo--;
         pctFeliz = min(100, pctFeliz + 1);
         happy(0, 0, 75);
-        moveServoEmocao("feliz");
         saveHumorToEEPROM();
         pCharacteristic->setValue(getHumorJSON().c_str());
         Serial.print("[EMOCAO] Gosta de ");
@@ -531,7 +521,7 @@ void loop() {
         lastFelizAnim = millis();
       } else {
         suspicion(0, 0, 75);
-        moveServoEmocao("normal");
+    
       }
 
       emInteracao = true;
