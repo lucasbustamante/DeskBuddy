@@ -767,7 +767,7 @@ void loving (int xx, int yy, int tt) {
 
   void hectic(int xx, int yy, int tt){
   //velocidade sugerida 100
-    for (int i = 0; i < 25; i++) {
+    for (int i = 0; i < 15; i++) {
   display.clearDisplay();
   display.drawBitmap(xx, yy, emotes183, 128, 64, 1);
   display.display();
@@ -863,10 +863,30 @@ void cry(int xx, int yy, int tt){
   display.display();
   smartDelay(tt);
 }
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes195, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes194, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes193, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes192, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
 }
 
 void hunger(int xx, int yy, int tt){
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 8; i++) {
   display.clearDisplay();
   display.drawBitmap(xx, yy, emotes200, 128, 64, 1);
   display.display();
@@ -898,7 +918,13 @@ void hunger(int xx, int yy, int tt){
 
 
 void bored(int xx, int yy, int tt){
-    for (int i = 0; i < 10; i++) {
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes5, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+    for (int i = 0; i < 20; i++) {
   display.clearDisplay();
   display.drawBitmap(xx, yy, emotes202, 128, 64, 1);
   display.display();
@@ -909,8 +935,9 @@ void bored(int xx, int yy, int tt){
   display.display();
   smartDelay(tt);
     }
+
   display.clearDisplay();
-  display.drawBitmap(xx, yy, emotes5, 128, 64, 1);
+  display.drawBitmap(xx, yy, emotes203, 128, 64, 1);
   display.display();
   smartDelay(tt);
 }
