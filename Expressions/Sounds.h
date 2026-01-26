@@ -131,6 +131,24 @@
 #define S_FART3			18
 #define PIRATES 19
 #define S_JUMP 20
+#define S_HAPPY2        60
+#define S_SAD2          61
+#define S_SURPRISE2     62
+#define S_SLEEPY2       63
+#define S_CONFUSED2     64
+#define S_YES2          65
+#define S_NO2           66
+#define S_HELLO2        67
+#define S_BYE2          68
+#define S_ALERT2        69
+// ===================== CUSTOM SOUNDS (DeskBuddy) =====================
+// Add new sound IDs here and implement their patterns inside BuzzerScheduler::playSound().
+// Keep IDs unique.
+#define S_NEUTRAL       21
+#define S_CURIOUS       22
+#define S_ANGRY         23
+#define S_LOVE          24
+
 
 
 const int songspeed = 1;

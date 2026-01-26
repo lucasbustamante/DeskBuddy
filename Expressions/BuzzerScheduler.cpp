@@ -124,7 +124,117 @@ void BuzzerScheduler::playSound(uint8_t soundId) {
       addBend(1000, 1700, 1.05f, 9, 10);
       break;
 
-    default:
+    
+    // ===== DeskBuddy custom sounds =====
+    case S_NEUTRAL:
+      addTone(900, 35, 18);
+      addTone(1200, 30, 18);
+      addBend(1100, 900, 1.02f, 18, 5);
+      break;
+
+    case S_CURIOUS:
+      addBend(900, 1800, 1.03f, 10, 2);
+      addDelay(25);
+      addBend(1500, 1100, 1.02f, 10, 2);
+      addDelay(20);
+      addBend(1100, 2000, 1.04f, 9, 2);
+      break;
+
+    case S_ANGRY:
+      addTone(420, 55, 12);
+      addTone(260, 65, 12);
+      addTone(520, 50, 10);
+      addBend(800, 420, 1.03f, 12, 4);
+      break;
+
+    case S_LOVE:
+      addBend(700, 1100, 1.02f, 16, 6);
+      addTone(1300, 35, 12);
+      addBend(900, 1400, 1.03f, 18, 6);
+      break;
+
+    // Feliz 2: “uii-ii!” (subidas rápidas)
+case S_HAPPY2:
+  addTone(900, 60, 10);
+  addBend(900, 1400, 1.03f, 12, 6);
+  addDelay(35);
+  addBend(1100, 1700, 1.03f, 14, 6);
+  addDelay(25);
+  addTone(1500, 60, 10);
+  break;
+
+// Triste 2: “oooh…” (descendo e mais longo)
+case S_SAD2:
+  addTone(650, 80, 15);
+  addBend(650, 320, 1.02f, 26, 8);
+  addDelay(40);
+  addBend(420, 260, 1.02f, 22, 10);
+  break;
+
+// Surpresa 2: “pip!” (sobe e corta)
+case S_SURPRISE2:
+  addTone(1200, 40, 8);
+  addBend(1200, 2200, 1.05f, 12, 2);
+  addDelay(30);
+  addTone(2000, 35, 8);
+  break;
+
+// Soninho 2: “zz…” (oscila pra baixo)
+case S_SLEEPY2:
+  addTone(520, 120, 20);
+  addDelay(40);
+  addBend(520, 380, 1.02f, 22, 12);
+  addDelay(60);
+  addBend(420, 300, 1.02f, 24, 12);
+  break;
+
+// Confuso 2: “hmm?” (sobe desce sobe)
+case S_CONFUSED2:
+  addBend(700, 1050, 1.03f, 14, 6);
+  addDelay(35);
+  addBend(1050, 650, 1.03f, 16, 6);
+  addDelay(35);
+  addBend(650, 980, 1.03f, 16, 6);
+  break;
+
+// Sim 2: “bip-bip” animado
+case S_YES2:
+  addTone(1200, 55, 20);
+  addDelay(40);
+  addTone(1500, 65, 20);
+  break;
+
+// Não 2: “buu” (descida curta)
+case S_NO2:
+  addTone(900, 60, 10);
+  addBend(900, 520, 1.03f, 16, 10);
+  break;
+
+// Olá 2: “o-lá!” (dois blocos)
+case S_HELLO2:
+  addBend(900, 1300, 1.03f, 16, 8);
+  addDelay(40);
+  addBend(1100, 1700, 1.03f, 18, 8);
+  break;
+
+// Tchau 2: “tchaa…” (desce e some)
+case S_BYE2:
+  addTone(1200, 70, 10);
+  addBend(1200, 520, 1.03f, 22, 12);
+  addDelay(30);
+  addTone(450, 70, 10);
+  break;
+
+// Alerta 2: “wi-wi-wi!” (três chamados rápidos)
+case S_ALERT2:
+  addBend(900, 1900, 1.05f, 12, 8);
+  addDelay(40);
+  addBend(900, 1900, 1.05f, 12, 8);
+  addDelay(40);
+  addBend(900, 1900, 1.05f, 12, 8);
+  break;
+  
+default:
       // fallback: short blip
       addTone(1200, 40, 10);
       break;
