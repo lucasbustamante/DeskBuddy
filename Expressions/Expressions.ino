@@ -58,7 +58,8 @@ static portMUX_TYPE uiMux = portMUX_INITIALIZER_UNLOCKED;
 static char g_autoEmotion[16] = "normal";
 static bool g_overrideActive = false;
 static char g_overrideEmotion[16] = "";
-
+// >>> qual emoção está sendo desenhada AGORA na tela (para bloquear som fora da tela)
+static char g_currentShownEmotion[16] = "normal";
 
 // >>> Som sempre inicia junto com a emoção (sincronizado na uiTask)
 static bool g_screenSoundPending = false;
@@ -353,6 +354,7 @@ static void setAutoEmotion(const String &emo) {
   portEXIT_CRITICAL(&uiMux);
 }
 
+
 static void requestOverrideEmotion(const char *emo, bool requestSound, bool shortVariant) {
   portENTER_CRITICAL(&uiMux);
   g_overrideActive = true;
@@ -503,6 +505,12 @@ static void uiTask(void *param) {
     }
     portEXIT_CRITICAL(&uiMux);
 
+    // registra qual emoção está sendo desenhada AGORA na tela
+portENTER_CRITICAL(&uiMux);
+strncpy(g_currentShownEmotion, emo, sizeof(g_currentShownEmotion) - 1);
+g_currentShownEmotion[sizeof(g_currentShownEmotion) - 1] = 0;
+portEXIT_CRITICAL(&uiMux);
+
     // >>> GARANTIA: som inicia junto com a emoção
     if (localSoundPending) {
       // toca só se o som for da mesma emoção que vai iniciar agora
@@ -529,8 +537,19 @@ void showEmoteOnDisplay() {
   // sempre atualiza a emoção alvo do display (animação)
   setAutoEmotion(dominante);
 
-  // som automático (dominante) respeitando janelas e travas
+  // >>> Só toca som automático se a emoção dominante for a mesma que está sendo mostrada AGORA
+  char shown[16];
+  portENTER_CRITICAL(&uiMux);
+  strncpy(shown, g_currentShownEmotion, sizeof(shown) - 1);
+  shown[sizeof(shown) - 1] = 0;
+  portEXIT_CRITICAL(&uiMux);
+
+// Se teve override recente (eventos), não dispara som automático aqui
+// (porque a tela está priorizando o que foi pedido pelo evento)
+// se a tela está mostrando outra emoção (ex: bravo), não toca som do dominante
+if (dominante == String(shown)) {
   tryPlayAutoDominantSound(dominante);
+}
 }
 
 // ======================================================
