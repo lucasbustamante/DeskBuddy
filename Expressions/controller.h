@@ -3,6 +3,23 @@
 #ifndef CONTROLLER_H
 #define CONTROLLER_H
 
+// ======== RELAÇÃO (precisa estar em .h por causa do auto-prototype do Arduino) ========
+#ifndef TAM_NOME
+#define TAM_NOME 16
+#endif
+
+struct Relacao {
+  char nome[TAM_NOME];
+  bool gosta;
+  int contador;
+  bool relacaoDefinida;
+  bool segundaChanceConcedida;
+
+  bool apaixonado;
+  int afinidade;
+};
+
+
 void sad(int xx, int yy, int tt);
 
 void normal(int xx, int yy, int tt);

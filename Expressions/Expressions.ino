@@ -10,6 +10,8 @@
 #include "controller.h"
 
 #include "BuzzerScheduler.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -24,9 +26,87 @@
 #define SERVICE_UUID        "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 #define CHARACTERISTIC_UUID "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
 #define MAX_ENCONTRADOS 10
+#ifndef TAM_NOME
 #define TAM_NOME 16
+#endif
 
 #define BUZZER_PIN 10
+
+// ======== MULTITASK (DISPLAY SEM TRAVAR) ========
+// A ideia aqui é manter as animações rodando em uma task separada,
+// para que operações bloqueantes (ex: BLE scan de 1s) não congelem o display.
+
+// Protege acesso concorrente ao buzzer (update/playSound) e às variáveis de UI.
+portMUX_TYPE buzzerMux = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE uiMux = portMUX_INITIALIZER_UNLOCKED;
+
+// Emoção "automática" (dominante) e override "one-shot" (eventos)
+static char g_autoEmotion[16] = "normal";
+static bool g_overrideActive = false;
+static char g_overrideEmotion[16] = "";
+
+static TaskHandle_t uiTaskHandle = nullptr;
+
+static void setAutoEmotion(const String &emo) {
+  portENTER_CRITICAL(&uiMux);
+  strncpy(g_autoEmotion, emo.c_str(), sizeof(g_autoEmotion) - 1);
+  g_autoEmotion[sizeof(g_autoEmotion) - 1] = 0;
+  portEXIT_CRITICAL(&uiMux);
+}
+
+static void requestOverrideEmotion(const char *emo) {
+  portENTER_CRITICAL(&uiMux);
+  g_overrideActive = true;
+  strncpy(g_overrideEmotion, emo, sizeof(g_overrideEmotion) - 1);
+  g_overrideEmotion[sizeof(g_overrideEmotion) - 1] = 0;
+  portEXIT_CRITICAL(&uiMux);
+}
+
+static void runEmotionAnimation(const char *emo, int xx=0, int yy=0, int tt=75) {
+  // Mantém exatamente os mesmos frames/funções, só que fora do loop principal.
+  if (strcmp(emo, "apaixonado") == 0) {
+    loving(xx, yy, tt);
+  } else if (strcmp(emo, "feliz") == 0) {
+    happy(xx, yy, tt);
+  } else if (strcmp(emo, "triste") == 0) {
+    sad(xx, yy, tt);
+  } else if (strcmp(emo, "entediado") == 0) {
+    bored(xx, yy, tt);
+  } else if (strcmp(emo, "bravo") == 0) {
+    angry(xx, yy, tt);
+  } else if (strcmp(emo, "suspeita") == 0) {
+    suspicion(xx, yy, tt);
+  } else {
+    normal(xx, yy, tt);
+  }
+}
+
+static void uiTask(void *param) {
+  (void)param;
+  char emo[16];
+
+  while (true) {
+    bool localOverride = false;
+
+    portENTER_CRITICAL(&uiMux);
+    localOverride = g_overrideActive;
+    if (localOverride) {
+      strncpy(emo, g_overrideEmotion, sizeof(emo) - 1);
+      emo[sizeof(emo) - 1] = 0;
+      // consome o override (toca 1 ciclo e volta pro auto)
+      g_overrideActive = false;
+    } else {
+      strncpy(emo, g_autoEmotion, sizeof(emo) - 1);
+      emo[sizeof(emo) - 1] = 0;
+    }
+    portEXIT_CRITICAL(&uiMux);
+
+    runEmotionAnimation(emo, 0, 0, 75);
+
+    // yield curto pra não monopolizar CPU
+    vTaskDelay(1);
+  }
+}
 
 // ======== AJUSTES IMPORTANTES ========
 const unsigned long ANIM_INTERVAL = 7000; // 7s
@@ -70,16 +150,6 @@ String encontrados[MAX_ENCONTRADOS];
 int idxEncontrado = 0;
 int countEncontrados = 0;
 
-struct Relacao {
-  char nome[TAM_NOME];
-  bool gosta;
-  int contador;
-  bool relacaoDefinida;
-  bool segundaChanceConcedida;
-
-  bool apaixonado;
-  int afinidade;
-};
 Relacao relacoes[MAX_ENCONTRADOS];
 
 // Controle de sons/animações periódicas
@@ -285,6 +355,28 @@ String getHumorJSON() {
 String lastSoundEmotion = "";
 unsigned long lastEmotionSoundAt = 0;
 
+// ======== SOM: PRIORIDADE DO DISPLAY ========
+// Você controla aqui em “ciclos”:
+// Ex.: 3 = repete o som automático a cada (3 * DECAY_INTERVAL_MS).
+// Se DECAY_INTERVAL_MS=3000, então 3 ciclos = 9000ms.
+static const uint8_t SOUND_REPEAT_CYCLES = 5;
+
+// Janela em que o som do DISPLAY tem prioridade total.
+// Durante essa janela, o som automático (dominante) NÃO toca.
+static const uint8_t DISPLAY_SOUND_PRIORITY_CYCLES = 1;
+
+// Controle interno
+static String lastAutoSoundEmotion = "";
+static unsigned long lastAutoSoundMs = 0;
+static unsigned long lastDisplaySoundMs = 0;
+
+static inline unsigned long autoSoundIntervalMs() {
+  return (unsigned long)SOUND_REPEAT_CYCLES * (unsigned long)DECAY_INTERVAL_MS;
+}
+static inline unsigned long displayPriorityWindowMs() {
+  return (unsigned long)DISPLAY_SOUND_PRIORITY_CYCLES * (unsigned long)DECAY_INTERVAL_MS;
+}
+
 uint8_t soundForEmotion(const String &emocao, bool variantShort=false) {
   if (emocao == "feliz")        return variantShort ? S_HAPPY_SHORT : S_HAPPY;
   if (emocao == "triste")       return S_SAD;
@@ -295,31 +387,39 @@ uint8_t soundForEmotion(const String &emocao, bool variantShort=false) {
 }
 
 void playEmotionSoundNow(const String &emocao, bool variantShort=false) {
+  portENTER_CRITICAL(&buzzerMux);
   buzzer.playSound(soundForEmotion(emocao, variantShort));
+  portEXIT_CRITICAL(&buzzerMux);
   lastEmotionSoundAt = millis();
 }
 
-// >>> NOVO: som baseado na emoção MOSTRADA na tela (mesmo que não seja dominante)
+// Som baseado na emoção MOSTRADA na tela (prioridade máxima)
 uint8_t soundForScreenEmotion(const String &telaEmocao, bool variantShort=false) {
-  // Mapeia emoções de “tela”
   if (telaEmocao == "feliz")        return soundForEmotion("feliz", variantShort);
   if (telaEmocao == "bravo")        return soundForEmotion("bravo", false);
   if (telaEmocao == "apaixonado")   return soundForEmotion("apaixonado", variantShort);
   if (telaEmocao == "triste")       return soundForEmotion("triste", false);
   if (telaEmocao == "entediado")    return soundForEmotion("entediado", false);
-
-  // “suspeita”/neutro: usa um som de “conexão/curioso”
   if (telaEmocao == "suspeita")     return S_CONNECTION;
-
-  // fallback
   return S_CONNECTION;
 }
 
 void playScreenEmotionSoundNow(const String &telaEmocao, bool variantShort=false) {
+  const unsigned long now = millis();
+
+  portENTER_CRITICAL(&buzzerMux);
   buzzer.playSound(soundForScreenEmotion(telaEmocao, variantShort));
-  lastEmotionSoundAt = millis();
+  portEXIT_CRITICAL(&buzzerMux);
+
+  lastEmotionSoundAt = now;
+
+  // >>> AQUI É A CHAVE: quando o display tocar som, ele ganha prioridade
+  lastDisplaySoundMs = now;
+
+  // e empurra o agendamento do som automático pra frente (pra não “misturar”)
+  lastAutoSoundMs = now;
+  lastAutoSoundEmotion = ""; // força "emotionChanged" quando voltar
 }
-// <<< FIM NOVO
 
 void buzzerMaxIfSupported() {
   // intencionalmente vazio pra não quebrar compilação
@@ -328,41 +428,41 @@ void buzzerMaxIfSupported() {
 // ======== DISPLAY ========
 void showEmoteOnDisplay() {
   String dominante = getDominantEmotion();
+  const unsigned long now = millis();
 
-  bool shouldPlay = false;
-  bool emotionChanged = (dominante != lastDominantEmotion);
+  // Sempre atualiza a emoção alvo do display (animação)
+  setAutoEmotion(dominante);
+
+  // Se recentemente teve som do DISPLAY, NÃO toca som automático do dominante
+  if (now - lastDisplaySoundMs < displayPriorityWindowMs()) {
+    return;
+  }
+
+  // A partir daqui, só som AUTOMÁTICO (quando não teve override recente)
+  const bool emotionChanged = (dominante != lastAutoSoundEmotion);
 
   if (emotionChanged) {
-    lastDominantEmotion = dominante;
-    dominantSameCycles = 0;
-    shouldPlay = true;
-  } else {
-    dominantSameCycles++;
-    if (dominantSameCycles >= 3) {
-      dominantSameCycles = 0;
-      shouldPlay = true;
+    // Debounce curtinho pra evitar disparos muito próximos
+    if (now - lastAutoSoundMs > 400) {
+      // Só toca se não estiver tocando nada agora
+      if (!buzzer.isPlaying()) {
+        lastAutoSoundEmotion = dominante;
+        lastAutoSoundMs = now;
+        const bool shortVariant = (dominante == "feliz" || dominante == "apaixonado");
+        playEmotionSoundNow(dominante, shortVariant);
+      } else {
+        // se estiver tocando, apenas marca pra não insistir
+        lastAutoSoundEmotion = dominante;
+        lastAutoSoundMs = now;
+      }
     }
-  }
-
-  if (shouldPlay) {
-    if (emotionChanged || !buzzer.isPlaying()) {
-      bool shortVariant = (dominante == "feliz" || dominante == "apaixonado");
+  } else {
+    // Repetição controlada por "ciclos"
+    if (!buzzer.isPlaying() && (now - lastAutoSoundMs >= autoSoundIntervalMs())) {
+      lastAutoSoundMs = now;
+      const bool shortVariant = (dominante == "feliz" || dominante == "apaixonado");
       playEmotionSoundNow(dominante, shortVariant);
     }
-  }
-
-  if (dominante == "apaixonado") {
-    loving(0,0,75);
-  } else if (dominante == "feliz") {
-    happy(0,0,75);
-  } else if (dominante == "triste") {
-    sad(0,0,75);
-  } else if (dominante == "entediado") {
-    bored(0,0,75);
-  } else if (dominante == "bravo") {
-    angry(0,0,75);
-  } else {
-    normal(0,0,75);
   }
 }
 
@@ -493,6 +593,9 @@ void setup() {
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
+  // Inicia task de UI (display), para que o BLE scan não congele a animação.
+  xTaskCreatePinnedToCore(uiTask, "uiTask", 4096, nullptr, 1, &uiTaskHandle, 0);
+
   buzzer.begin(BUZZER_PIN);
   buzzerMaxIfSupported();
 
@@ -523,7 +626,9 @@ void setup() {
 
 void loop() {
   processSerialCommands();
+  portENTER_CRITICAL(&buzzerMux);
   buzzer.update();
+  portEXIT_CRITICAL(&buzzerMux);
 
   // Botão de carinho
   if (digitalRead(BUTTON_PIN) == LOW && (millis() - lastButtonTime > 500)) {
@@ -542,7 +647,7 @@ void loop() {
     pCharacteristic->setValue(getHumorJSON().c_str());
     // som + tela (carinho sempre é feliz)
     playScreenEmotionSoundNow("feliz", true);
-    happy(0,0,75);
+    requestOverrideEmotion("feliz");
 
     Serial.println("[CARINHO] Felicidade +3, Tristeza/Bravo/Tédio -1.");
     lastFelizAnim = millis();
@@ -609,6 +714,15 @@ void loop() {
 
         int idx = defineRelacaoIndex(nomePuro);
         Relacao &rel = relacoes[idx];
+
+        unsigned long nowInteract = millis();
+        if (nowInteract - lastInteractionTime < DECAY_INTERVAL_MS) {
+          // Cooldown: evita aplicar interações uma atrás da outra agora que o loop está rápido.
+          Serial.println("[INTERACAO] Cooldown ativo, ignorando interação.");
+          break;
+        }
+        lastInteractionTime = nowInteract;
+
         rel.contador++;
 
         Serial.print("[BUDDY] Encontrado: ");
@@ -642,14 +756,14 @@ void loop() {
             aplicaEfeitoGosta(rel, nomePuro);
 
             if (rel.apaixonado || pctApaixonado > 50) {
-              // >>> NOVO: som da emoção que vai aparecer na tela
+              // som e display: APAIXONADO tem prioridade total
               playScreenEmotionSoundNow("apaixonado", true);
-              loving(0, 0, 75);
+              requestOverrideEmotion("apaixonado");
               lastLoveAnim = millis();
             } else {
-              // >>> NOVO: som da emoção que vai aparecer na tela
+              // som e display: FELIZ tem prioridade total
               playScreenEmotionSoundNow("feliz", true);
-              happy(0, 0, 75);
+              requestOverrideEmotion("feliz");
               lastFelizAnim = millis();
             }
 
@@ -665,9 +779,9 @@ void loop() {
           } else {
             aplicaEfeitoNaoGosta(rel, nomePuro);
 
-            // >>> NOVO: som da emoção que vai aparecer na tela (bravo)
+            // som e display: BRAVO tem prioridade total
             playScreenEmotionSoundNow("bravo", false);
-            angry(0, 0, 75);
+            requestOverrideEmotion("bravo");
             lastBravoAnim = millis();
 
             Serial.print("[EMOCAO] NÃO gosta de ");
@@ -684,9 +798,9 @@ void loop() {
         } else {
           aplicaEfeitoSuspeita(rel);
 
-          // >>> NOVO: som da emoção que vai aparecer na tela (suspeita)
+          // som e display: SUSPEITA tem prioridade total
           playScreenEmotionSoundNow("suspeita", false);
-          suspicion(0, 0, 75);
+          requestOverrideEmotion("suspeita");
           Serial.println("[EMOCAO] Relação indefinida: SUSPEITA.");
         }
 

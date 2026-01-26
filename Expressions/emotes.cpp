@@ -6,14 +6,19 @@
 #include "images.h"
 #include "controller.h"
 #include "BuzzerScheduler.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 extern BuzzerScheduler buzzer;
+extern portMUX_TYPE buzzerMux;
 
 static inline void smartDelay(uint16_t ms){
   uint32_t t0 = millis();
   while ((uint32_t)(millis() - t0) < ms) {
+    portENTER_CRITICAL(&buzzerMux);
     buzzer.update();
-    ::delay(1);
+    portEXIT_CRITICAL(&buzzerMux);
+    vTaskDelay(1); // yield without blocking other tasks
   }
 }
 
