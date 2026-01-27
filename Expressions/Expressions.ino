@@ -56,10 +56,10 @@ namespace CFG {
   static constexpr float BAT_R_BOTTOM = 100000.0f;
 
   // Calibração simples (ajuste depois, se quiser)
-  static constexpr float BAT_FULL_V  = 4.20f; // 100%
-  static constexpr float BAT_EMPTY_V = 3.30f; // 0%
+  static constexpr float BAT_FULL_V  = 3.70f; // 100%
+  static constexpr float BAT_EMPTY_V = 2.90f; // 0%
 
-  static constexpr int   BAT_LOW_PERCENT = 20;     // abaixo disso: "hunger"
+  static constexpr int   BAT_LOW_PERCENT = 15;     // abaixo disso: "hunger"
   static constexpr unsigned long BAT_READ_EVERY_MS = 5000; // ler a cada 5s
 
 
@@ -394,12 +394,9 @@ void normalizaEmocoesAvancada(bool acaoFoiFeliz = false, bool acaoFoiTriste = fa
   clampAll();
 }
 
-String getDominantEmotion() {
+// Retorna o dominante "real" do humor (SEM considerar fome/bateria)
+static String getRealDominantEmotion() {
   if (forcedEmotion.length() > 0) return forcedEmotion;
-
-  // >>> prioridade máxima: fome por bateria baixa
-  if (g_lowBattery) return "hunger";
-
 
   struct Pair { int v; const char* n; };
   Pair lista[] = {
@@ -415,6 +412,29 @@ String getDominantEmotion() {
 
   if (lista[best].v > 50) return String(lista[best].n);
   return "normal";
+}
+
+// Dominante final: se bateria baixa, INTERCALA hunger com dominante real
+String getDominantEmotion() {
+  // Se o usuário forçou, respeita sempre (não intercala)
+  if (forcedEmotion.length() > 0) return forcedEmotion;
+
+  // Calcula dominante real
+  String realDom = getRealDominantEmotion();
+
+  // Se não está com bateria baixa, retorna normal
+  if (!g_lowBattery) return realDom;
+
+  // ===== Intercala =====
+  // Exemplo: 2s hunger + 2s real (ciclo 4s)
+  static const unsigned long HUNGER_SHOW_MS = 2000;
+  static const unsigned long REAL_SHOW_MS   = 2000;
+  static const unsigned long CYCLE_MS       = HUNGER_SHOW_MS + REAL_SHOW_MS;
+
+  unsigned long t = millis() % CYCLE_MS;
+
+  if (t < HUNGER_SHOW_MS) return "hunger";
+  return realDom;
 }
 
 String getHumorJSON() {
