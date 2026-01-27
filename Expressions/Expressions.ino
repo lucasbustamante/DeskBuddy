@@ -13,38 +13,118 @@
 #include <EEPROM.h>
 #include "images.h"
 #include "controller.h"
+#ifdef TAM_NOME
+#undef TAM_NOME
+#endif
 
 #include "BuzzerScheduler.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 // ======================================================
-//  DISPLAY / PINS / BLE UUIDs
+//  ✅ CONFIG CENTRAL (AJUSTE TUDO AQUI)
+//  - Chances (gostar / segunda chance / virar amor)
+//  - Quantidade de interações
+//  - Tempos (decay, scan, debounce, som, amor)
+//  - Ganhos / perdas por ciclo
 // ======================================================
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-#define OLED_RESET -1
-#define OLED_ADDR 0x3C
+namespace CFG {
 
-#define NAME "Bliko"
-#define SENHA "oi33"
-#define BUTTON_PIN 6
-#define EEPROM_SIZE 1024
+  // -------- Identidade --------
+  static constexpr const char* NAME  = "Bliko";
+  static constexpr const char* SENHA = "oi33";
 
-// Serviço principal (mantido)
-#define SERVICE_UUID            "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-#define CHARACTERISTIC_UUID     "6e400003-b5a3-f393-e0a9-e50e24dcca9e" // READ status JSON (mantido)
+  // -------- Display / I2C --------
+  static constexpr int SCREEN_WIDTH  = 128;
+  static constexpr int SCREEN_HEIGHT = 64;
+  static constexpr int OLED_RESET    = -1;
+  static constexpr uint8_t OLED_ADDR = 0x3C;
 
-// >>> NOVO: “handshake” amor/amizade (para validar reciprocidade)
-#define LOVE_PROPOSAL_UUID      "6e400002-b5a3-f393-e0a9-e50e24dcca9e" // WRITE: "PROPOSE:<meuNome>"
-#define LOVE_RESPONSE_UUID      "6e400004-b5a3-f393-e0a9-e50e24dcca9e" // READ/NOTIFY: "LOVE:<nome>" | "FRIEND:<nome>" | "REJECT:<nome>"
+  static constexpr int I2C_SDA = 2;
+  static constexpr int I2C_SCL = 3;
 
-#define MAX_ENCONTRADOS 10
-#ifndef TAM_NOME
-#define TAM_NOME 16
-#endif
+    // -------- IO --------
+  static constexpr int BUTTON_PIN = 6;
+  static constexpr int BUZZER_PIN = 10;
 
-#define BUZZER_PIN 10
+  // -------- Bateria (ADC) --------
+  static constexpr int BAT_ADC_PIN = 1; // pino 1 (ADC)
+
+  // Divisor: Bateria -> R_TOP -> (ADC) -> R_BOTTOM -> GND
+  // Recomendado para reduzir tensão: R_TOP=330k, R_BOTTOM=100k
+  static constexpr float BAT_R_TOP    = 330000.0f;
+  static constexpr float BAT_R_BOTTOM = 100000.0f;
+
+  // Calibração simples (ajuste depois, se quiser)
+  static constexpr float BAT_FULL_V  = 4.20f; // 100%
+  static constexpr float BAT_EMPTY_V = 3.30f; // 0%
+
+  static constexpr int   BAT_LOW_PERCENT = 20;     // abaixo disso: "hunger"
+  static constexpr unsigned long BAT_READ_EVERY_MS = 5000; // ler a cada 5s
+
+
+  // -------- EEPROM --------
+  static constexpr int EEPROM_SIZE = 1024;
+
+  // -------- BLE UUIDs (mantidos) --------
+  static constexpr const char* SERVICE_UUID        = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+  static constexpr const char* CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // READ status JSON (mantido)
+
+  // Handshake amor/amizade (mantido)
+  static constexpr const char* LOVE_PROPOSAL_UUID  = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // WRITE: "PROPOSE:<meuNome>"
+  static constexpr const char* LOVE_RESPONSE_UUID  = "6e400004-b5a3-f393-e0a9-e50e24dcca9e"; // READ/NOTIFY: "LOVE:<nome>" | "FRIEND:<nome>" | "REJECT:<nome>"
+
+  // -------- Buffers / limites --------
+  static constexpr int MAX_ENCONTRADOS = 10;
+  static constexpr int TAM_NOME_MAX    = 16;
+
+  // -------- Tempos base --------
+  static constexpr unsigned long ANIM_INTERVAL       = 7000;  // (mantido, caso use em outros lugares)
+  static constexpr unsigned long DECAY_INTERVAL_MS   = 3000;  // ciclo base (mantido)
+  static constexpr unsigned long BUTTON_DEBOUNCE_MS  = 500;
+
+  // -------- Regras de relação (interações) --------
+  static constexpr int INTERACOES_PRA_DEFINIR_RELACAO = 2;
+  static constexpr int INTERACOES_PRA_SEGUNDA_CHANCE  = 6;
+  static constexpr int INTERACOES_PRA_APAIXONAR       = 10;
+
+  // -------- Chances (percentuais) --------
+  static constexpr int CHANCE_GOSTAR_PRIMEIRA_PERCENT = 70; // após 2 interações
+  static constexpr int CHANCE_GOSTAR_SEGUNDA_PERCENT  = 50; // na 2ª chance (após 6)
+
+  // Quando ambos se gostam e bate o handshake: chance de virar AMOR (senão FRIEND)
+  static constexpr int CHANCE_VIRAR_AMOR_PERCENT      = 25;
+
+  // -------- Amor (exclusividade + término) --------
+  static constexpr unsigned long LOVE_MISSING_DECAY_START_MS = 120000; // 2min sem ver parceiro começa a cair
+  static constexpr unsigned long LOVE_MISSING_STEP_MS        = 30000;  // a cada 30s sem ver, cai mais
+  static constexpr int LOVE_MISSING_DECAY_AMOUNT             = 3;      // cai 3 pontos por step
+  static constexpr int LOVE_ON_ACCEPT_GAIN                   = 15;     // ao aceitar amor, sobe 15
+
+  // -------- Efeitos do botão (carinho) --------
+  static constexpr int CARINHO_UP_FELIZ     = 3;
+  static constexpr int CARINHO_DOWN_OUTRAS = 1;
+
+  // -------- Decaimento por inatividade (mantido) --------
+  static constexpr int DECAY_FELIZ_SUB          = 5;  // feliz -= 5
+  static constexpr int DECAY_TRISTE_ADD         = 1;  // triste += 1 (ou)
+  static constexpr int DECAY_ENTEDIADO_ADD      = 1;  // entediado += 1
+  static constexpr int DECAY_AMOR_SEM_PARCEIRO  = 1;  // apaixonado -= 1 por ciclo se sem parceiro
+
+  // -------- Sons: anti “ciclar” --------
+  static constexpr unsigned long GLOBAL_SOUND_GAP_MS = 150; // trava global mínima entre inícios
+  static constexpr unsigned long DISPLAY_SOUND_MIN_GAP_CYCLES = 1; // 1 ciclo
+  static constexpr unsigned long AUTO_SOUND_MIN_GAP_CYCLES    = 5; // 5 ciclos
+
+  // -------- Handshake cooldown --------
+  static constexpr unsigned long HANDSHAKE_COOLDOWN_MS = 30000; // 30s
+
+  // -------- Scan BLE --------
+  static constexpr unsigned long SCAN_INTERVAL_DISCONNECTED_MS = 1200;
+  static constexpr unsigned long SCAN_INTERVAL_CONNECTED_MS    = 6000;
+  static constexpr uint32_t SCAN_DURATION_SEC                  = 1;
+
+} // namespace CFG
 
 // ======================================================
 //  MULTITASK (DISPLAY SEM TRAVAR)
@@ -68,39 +148,14 @@ static bool g_screenSoundShort = false;
 
 static TaskHandle_t uiTaskHandle = nullptr;
 
-// ======================================================
-//  AJUSTES IMPORTANTES (TEMPOS / REGRAS)
-// ======================================================
-const unsigned long ANIM_INTERVAL = 7000;      // 7s (mantido, se você usar em outros lugares)
-const unsigned long DECAY_INTERVAL_MS = 3000;  // ciclo base (você usa em muita coisa)
-
 // Sons: agora TODOS obedecem essas janelas.
-// - DISPLAY_SOUND_MIN_GAP_MS: mínimo entre sons disparados por eventos de tela (interação/botão)
-// - AUTO_SOUND_MIN_GAP_MS: mínimo entre sons automáticos (dominante)
-static const unsigned long DISPLAY_SOUND_MIN_GAP_MS = (unsigned long)DECAY_INTERVAL_MS * 1;  // 1 ciclo
-static const unsigned long AUTO_SOUND_MIN_GAP_MS    = (unsigned long)DECAY_INTERVAL_MS * 5;  // 5 ciclos
-
-// Amor: regras novas
-const int INTERACOES_PRA_DEFINIR_RELACAO = 2;
-const int INTERACOES_PRA_SEGUNDA_CHANCE  = 6;
-const int INTERACOES_PRA_APAIXONAR       = 10;
-
-// quando ambos se gostam, rola um “handshake”: pode virar AMIZADE ou AMOR
-const int CHANCE_VIRAR_AMOR_PERCENT      = 25; // dos que chegam no handshake (mutual like)
-
-// Exclusividade + término
-static const unsigned long LOVE_MISSING_DECAY_START_MS = 120000; // 2min sem ver parceiro começa a cair
-static const unsigned long LOVE_MISSING_STEP_MS        = 30000;  // a cada 30s sem ver, cai mais
-static const int LOVE_MISSING_DECAY_AMOUNT             = 3;      // cai 3 pontos por step
-static const int LOVE_ON_ACCEPT_GAIN                   = 15;     // ao aceitar amor, sobe 15
-
-const int CARINHO_UP_FELIZ = 3;
-const int CARINHO_DOWN_OUTRAS = 1;
+static const unsigned long DISPLAY_SOUND_MIN_GAP_MS = (unsigned long)CFG::DECAY_INTERVAL_MS * CFG::DISPLAY_SOUND_MIN_GAP_CYCLES;
+static const unsigned long AUTO_SOUND_MIN_GAP_MS    = (unsigned long)CFG::DECAY_INTERVAL_MS * CFG::AUTO_SOUND_MIN_GAP_CYCLES;
 
 // ======================================================
 //  OBJETOS
 // ======================================================
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+Adafruit_SSD1306 display(CFG::SCREEN_WIDTH, CFG::SCREEN_HEIGHT, &Wire, CFG::OLED_RESET);
 BLECharacteristic *pCharacteristic = nullptr;     // status JSON (READ)
 BLECharacteristic *pLoveProposal   = nullptr;     // proposal (WRITE)
 BLECharacteristic *pLoveResponse   = nullptr;     // response (READ/NOTIFY)
@@ -126,14 +181,14 @@ unsigned long estadoDisplayTimeout = 0;
 
 String forcedEmotion = "";
 
-String encontrados[MAX_ENCONTRADOS];
+String encontrados[CFG::MAX_ENCONTRADOS];
 int idxEncontrado = 0;
 int countEncontrados = 0;
 
-Relacao relacoes[MAX_ENCONTRADOS];
+Relacao relacoes[CFG::MAX_ENCONTRADOS];
 
 // Controle de sons / timers gerais
-static unsigned long lastAnySoundMs    = 0; // trava global anti “ciclar”
+static unsigned long lastAnySoundMs     = 0; // trava global anti “ciclar”
 static unsigned long lastDisplaySoundMs = 0;
 static unsigned long lastAutoSoundMs    = 0;
 
@@ -142,15 +197,64 @@ static String currentPartner = "";           // nome do parceiro se apaixonado
 static unsigned long lastSeenPartnerMs = 0;  // última vez que viu o parceiro
 
 // Para evitar conectar/handshake toda hora
-static unsigned long lastHandshakeAttemptMs[MAX_ENCONTRADOS] = {0};
-static const unsigned long HANDSHAKE_COOLDOWN_MS = 30000; // 30s
+static unsigned long lastHandshakeAttemptMs[CFG::MAX_ENCONTRADOS] = {0};
+
+// ======================================================
+//  BATERIA (ADC -> tensão -> %)
+// ======================================================
+static int g_batteryPercent = 100;
+static float g_batteryVoltage = 0.0f;
+static bool g_lowBattery = false;
+static unsigned long lastBatteryReadMs = 0;
+
+static float readBatteryVoltage() {
+  // Lê tensão no pino (em mV, quando disponível no core esp32)
+  // e converte para tensão da bateria pelo divisor.
+  uint32_t mv = analogReadMilliVolts(CFG::BAT_ADC_PIN);
+  float v_adc = mv / 1000.0f;
+
+  // Vbat = Vadc * (Rtop + Rbottom) / Rbottom
+  float v_bat = v_adc * (CFG::BAT_R_TOP + CFG::BAT_R_BOTTOM) / CFG::BAT_R_BOTTOM;
+  return v_bat;
+}
+
+static int batteryPercentFromVoltage(float vbat) {
+  float p = (vbat - CFG::BAT_EMPTY_V) / (CFG::BAT_FULL_V - CFG::BAT_EMPTY_V) * 100.0f;
+  if (p < 0) p = 0;
+  if (p > 100) p = 100;
+  return (int)(p + 0.5f);
+}
+
+static void updateBatteryIfNeeded() {
+  unsigned long now = millis();
+  if (now - lastBatteryReadMs < CFG::BAT_READ_EVERY_MS) return;
+  lastBatteryReadMs = now;
+
+  g_batteryVoltage = readBatteryVoltage();
+  g_batteryPercent = batteryPercentFromVoltage(g_batteryVoltage);
+
+  bool wasLow = g_lowBattery;
+  g_lowBattery = (g_batteryPercent < CFG::BAT_LOW_PERCENT);
+
+  // Log simples
+  Serial.print("[BATERIA] V=");
+  Serial.print(g_batteryVoltage, 2);
+  Serial.print("V  %=");
+  Serial.print(g_batteryPercent);
+  Serial.println(g_lowBattery ? "  (LOW -> HUNGER)" : "");
+
+  // Se acabou de entrar em low, pede um “one-shot” hunger com som
+  if (!wasLow && g_lowBattery) {
+    requestOverrideEmotion("hunger", true, false); // som = S_ANGRY (vamos mapear já já)
+  }
+}
 
 // ======================================================
 //  EEPROM
 // ======================================================
 void limpaTodaEEPROM() {
-  EEPROM.begin(EEPROM_SIZE);
-  for (int i = 0; i < EEPROM_SIZE; i++) EEPROM.write(i, 0x00);
+  EEPROM.begin(CFG::EEPROM_SIZE);
+  for (int i = 0; i < CFG::EEPROM_SIZE; i++) EEPROM.write(i, 0x00);
   EEPROM.commit();
 }
 
@@ -185,7 +289,7 @@ void carregaBufferEncontradosEEPROM() {
 }
 
 void inicializaEEPROMSempre() {
-  EEPROM.begin(EEPROM_SIZE);
+  EEPROM.begin(CFG::EEPROM_SIZE);
   EEPROM.write(0, 70); // feliz
   EEPROM.write(1, 10); // triste
   EEPROM.write(2, 10); // entediado
@@ -196,7 +300,7 @@ void inicializaEEPROMSempre() {
 }
 
 void loadHumorFromEEPROM() {
-  EEPROM.begin(EEPROM_SIZE);
+  EEPROM.begin(CFG::EEPROM_SIZE);
   pctFeliz      = EEPROM.read(0);
   pctTriste     = EEPROM.read(1);
   pctEntediado  = EEPROM.read(2);
@@ -225,7 +329,7 @@ void saveHumorToEEPROM() {
 //  UTIL
 // ======================================================
 int buscaRelacao(const String& nome) {
-  for (int i = 0; i < MAX_ENCONTRADOS; i++) {
+  for (int i = 0; i < CFG::MAX_ENCONTRADOS; i++) {
     if (String(relacoes[i].nome) == nome) return i;
   }
   return -1;
@@ -234,9 +338,9 @@ int buscaRelacao(const String& nome) {
 int defineRelacaoIndex(const String& nome) {
   int idx = buscaRelacao(nome);
   if (idx == -1) {
-    for (int i = 0; i < MAX_ENCONTRADOS; i++) {
+    for (int i = 0; i < CFG::MAX_ENCONTRADOS; i++) {
       if (relacoes[i].nome[0] == 0) {
-        nome.toCharArray(relacoes[i].nome, TAM_NOME);
+        nome.toCharArray(relacoes[i].nome, CFG::TAM_NOME_MAX);
         relacoes[i].gosta = false;
         relacoes[i].contador = 0;
         relacoes[i].relacaoDefinida = false;
@@ -260,7 +364,7 @@ String extraiNomeDeskBuddy(String full) {
 }
 
 bool jaTemNomeNoBuffer(String nome) {
-  for (int i = 0; i < MAX_ENCONTRADOS; i++) if (encontrados[i] == nome) return true;
+  for (int i = 0; i < CFG::MAX_ENCONTRADOS; i++) if (encontrados[i] == nome) return true;
   return false;
 }
 
@@ -293,6 +397,10 @@ void normalizaEmocoesAvancada(bool acaoFoiFeliz = false, bool acaoFoiTriste = fa
 String getDominantEmotion() {
   if (forcedEmotion.length() > 0) return forcedEmotion;
 
+  // >>> prioridade máxima: fome por bateria baixa
+  if (g_lowBattery) return "hunger";
+
+
   struct Pair { int v; const char* n; };
   Pair lista[] = {
     {pctApaixonado, "apaixonado"},
@@ -318,13 +426,13 @@ String getHumorJSON() {
   json += "\"normal\":"     + String(pctNormal)     + ",";
   json += "\"apaixonado\":" + String(pctApaixonado) + ",";
   json += "\"dominante\":\"" + getDominantEmotion() + "\",";
-  json += "\"nome\":\"" + String(NAME) + "\",";
-  json += "\"senha\":\"" + String(SENHA) + "\",";
+  json += "\"nome\":\"" + String(CFG::NAME) + "\",";
+  json += "\"senha\":\"" + String(CFG::SENHA) + "\",";
   json += "\"parceiro\":\"" + currentPartner + "\",";
   json += "\"encontrados\":[";
   bool first = true;
 
-  for (int i = 0; i < MAX_ENCONTRADOS; i++) {
+  for (int i = 0; i < CFG::MAX_ENCONTRADOS; i++) {
     String nome = encontrados[i];
     if (nome.length() > 0) {
       if (!first) json += ",";
@@ -353,7 +461,6 @@ static void setAutoEmotion(const String &emo) {
   g_autoEmotion[sizeof(g_autoEmotion) - 1] = 0;
   portEXIT_CRITICAL(&uiMux);
 }
-
 
 static void requestOverrideEmotion(const char *emo, bool requestSound, bool shortVariant) {
   portENTER_CRITICAL(&uiMux);
@@ -384,6 +491,8 @@ static void runEmotionAnimation(const char *emo, int xx=0, int yy=0, int tt=75) 
     angry(xx, yy, tt);
   } else if (strcmp(emo, "suspeita") == 0) {
     suspicion(xx, yy, tt);
+  } else if (strcmp(emo, "hunger") == 0) {
+    hunger(xx, yy, tt);
   } else {
     normal(xx, yy, tt);
   }
@@ -398,6 +507,7 @@ uint8_t soundForEmotion(const String &emocao, bool variantShort=false) {
   if (emocao == "entediado")    return S_SLEEPING;
   if (emocao == "bravo")        return S_MODE3;
   if (emocao == "apaixonado")   return S_CUDDLY;
+  if (emocao == "hunger")       return S_ANGRY;
   if (emocao == "suspeita")     return S_CONNECTION;
   return S_CONNECTION;
 }
@@ -408,7 +518,7 @@ static inline bool canStartAnySound(unsigned long now, bool isDisplay) {
   if (buzzer.isPlaying()) return false;
 
   // trava global: impede encavalamento
-  if (now - lastAnySoundMs < 150) return false;
+  if (now - lastAnySoundMs < CFG::GLOBAL_SOUND_GAP_MS) return false;
 
   // janelas por categoria
   if (isDisplay) {
@@ -506,10 +616,10 @@ static void uiTask(void *param) {
     portEXIT_CRITICAL(&uiMux);
 
     // registra qual emoção está sendo desenhada AGORA na tela
-portENTER_CRITICAL(&uiMux);
-strncpy(g_currentShownEmotion, emo, sizeof(g_currentShownEmotion) - 1);
-g_currentShownEmotion[sizeof(g_currentShownEmotion) - 1] = 0;
-portEXIT_CRITICAL(&uiMux);
+    portENTER_CRITICAL(&uiMux);
+    strncpy(g_currentShownEmotion, emo, sizeof(g_currentShownEmotion) - 1);
+    g_currentShownEmotion[sizeof(g_currentShownEmotion) - 1] = 0;
+    portEXIT_CRITICAL(&uiMux);
 
     // >>> GARANTIA: som inicia junto com a emoção
     if (localSoundPending) {
@@ -544,12 +654,9 @@ void showEmoteOnDisplay() {
   shown[sizeof(shown) - 1] = 0;
   portEXIT_CRITICAL(&uiMux);
 
-// Se teve override recente (eventos), não dispara som automático aqui
-// (porque a tela está priorizando o que foi pedido pelo evento)
-// se a tela está mostrando outra emoção (ex: bravo), não toca som do dominante
-if (dominante == String(shown)) {
-  tryPlayAutoDominantSound(dominante);
-}
+  if (dominante == String(shown)) {
+    tryPlayAutoDominantSound(dominante);
+  }
 }
 
 // ======================================================
@@ -590,7 +697,6 @@ void processSerialCommands() {
 // ======================================================
 //  AMOR RECÍPROCO: “handshake” via BLE write/read
 // ======================================================
-
 static inline bool localIsInLove() {
   // se currentPartner preenchido e pctApaixonado > 0, consideramos “em amor”
   return (currentPartner.length() > 0 && pctApaixonado > 0);
@@ -598,7 +704,7 @@ static inline bool localIsInLove() {
 
 static void rebuildPartnerFromRelacoes() {
   currentPartner = "";
-  for (int i = 0; i < MAX_ENCONTRADOS; i++) {
+  for (int i = 0; i < CFG::MAX_ENCONTRADOS; i++) {
     if (relacoes[i].nome[0] != 0 && relacoes[i].apaixonado) {
       currentPartner = String(relacoes[i].nome);
       break;
@@ -611,7 +717,7 @@ static void rebuildPartnerFromRelacoes() {
 
 static void setPartnerLove(const String &nome) {
   // desmarca qualquer outro (garantia)
-  for (int i = 0; i < MAX_ENCONTRADOS; i++) {
+  for (int i = 0; i < CFG::MAX_ENCONTRADOS; i++) {
     if (relacoes[i].nome[0] != 0) relacoes[i].apaixonado = false;
   }
   int idx = defineRelacaoIndex(nome);
@@ -619,7 +725,7 @@ static void setPartnerLove(const String &nome) {
 
   currentPartner = nome;
   lastSeenPartnerMs = millis();
-  pctApaixonado = min(100, pctApaixonado + LOVE_ON_ACCEPT_GAIN);
+  pctApaixonado = min(100, pctApaixonado + CFG::LOVE_ON_ACCEPT_GAIN);
 
   saveHumorToEEPROM();
   pCharacteristic->setValue(getHumorJSON().c_str());
@@ -645,14 +751,14 @@ static void applyLoveDecayIfMissingPartner() {
   if (lastSeenPartnerMs == 0) return;
 
   unsigned long missing = now - lastSeenPartnerMs;
-  if (missing < LOVE_MISSING_DECAY_START_MS) return;
+  if (missing < CFG::LOVE_MISSING_DECAY_START_MS) return;
 
   static unsigned long lastLoveDecayStepMs = 0;
   if (lastLoveDecayStepMs == 0) lastLoveDecayStepMs = now;
 
-  if (now - lastLoveDecayStepMs >= LOVE_MISSING_STEP_MS) {
+  if (now - lastLoveDecayStepMs >= CFG::LOVE_MISSING_STEP_MS) {
     lastLoveDecayStepMs = now;
-    pctApaixonado = max(0, pctApaixonado - LOVE_MISSING_DECAY_AMOUNT);
+    pctApaixonado = max(0, pctApaixonado - CFG::LOVE_MISSING_DECAY_AMOUNT);
     Serial.print("[AMOR] Sem ver parceiro (");
     Serial.print(currentPartner);
     Serial.print(") há ");
@@ -677,7 +783,6 @@ static void setLoveResponse(const String &msg) {
   lastLoveResp = msg;
   if (pLoveResponse) {
     pLoveResponse->setValue(lastLoveResp.c_str());
-    // se alguém estiver conectado, tenta notificar
     pLoveResponse->notify();
   }
 }
@@ -691,8 +796,10 @@ static bool likesThisNameLocally(const String &otherName) {
 
 class LoveProposalCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *pChar) override {
-    String msg = pChar->getValue();  // <-- ERA std::string, aqui é String
+    // compatível com cores que retornam std::string
+    String msg = pChar->getValue();
     msg.trim();
+
 
     if (!msg.startsWith("PROPOSE:")) {
       setLoveResponse("REJECT:?");
@@ -705,7 +812,6 @@ class LoveProposalCallbacks : public BLECharacteristicCallbacks {
     Serial.print("[HANDSHAKE] Recebido PROPOSE de ");
     Serial.println(proposer);
 
-    // Regras:
     // 1) Precisa ser recíproco: eu preciso gostar dele
     if (!likesThisNameLocally(proposer)) {
       Serial.println("[HANDSHAKE] Eu NÃO gosto -> REJECT");
@@ -724,16 +830,14 @@ class LoveProposalCallbacks : public BLECharacteristicCallbacks {
 
     // 3) Decide: AMOR ou AMIZADE (random)
     int r = random(100);
-    if (r < CHANCE_VIRAR_AMOR_PERCENT) {
+    if (r < CFG::CHANCE_VIRAR_AMOR_PERCENT) {
       Serial.println("[HANDSHAKE] Resultado: LOVE");
       setPartnerLove(proposer);
       setLoveResponse("LOVE:" + proposer);
 
-      // emoção + som sincronizados
       requestOverrideEmotion("apaixonado", true, true);
     } else {
       Serial.println("[HANDSHAKE] Resultado: FRIEND");
-      // “bons amigos”: aumenta afinidade, mas não apaixona
       int idx = defineRelacaoIndex(proposer);
       relacoes[idx].afinidade = min(100, relacoes[idx].afinidade + 10);
       pctFeliz = min(100, pctFeliz + 2);
@@ -758,7 +862,7 @@ static bool doHandshakeWith(BLEAdvertisedDevice *device, const String &nomePuro)
   if (idx < 0) return false;
 
   unsigned long now = millis();
-  if (now - lastHandshakeAttemptMs[idx] < HANDSHAKE_COOLDOWN_MS) return false;
+  if (now - lastHandshakeAttemptMs[idx] < CFG::HANDSHAKE_COOLDOWN_MS) return false;
   lastHandshakeAttemptMs[idx] = now;
 
   Serial.print("[HANDSHAKE] Tentando com ");
@@ -767,14 +871,13 @@ static bool doHandshakeWith(BLEAdvertisedDevice *device, const String &nomePuro)
   BLEClient *client = BLEDevice::createClient();
   bool ok = false;
 
-  // connect precisa de ponteiro
   if (!client->connect(device)) {
     Serial.println("[HANDSHAKE] Falhou conectar.");
-    delete client;  // <-- deleteClient não existe
+    delete client;
     return false;
   }
 
-  BLERemoteService *svc = client->getService(BLEUUID(SERVICE_UUID));
+  BLERemoteService *svc = client->getService(BLEUUID(CFG::SERVICE_UUID));
   if (!svc) {
     Serial.println("[HANDSHAKE] Serviço não encontrado.");
     client->disconnect();
@@ -782,8 +885,8 @@ static bool doHandshakeWith(BLEAdvertisedDevice *device, const String &nomePuro)
     return false;
   }
 
-  BLERemoteCharacteristic *chProposal = svc->getCharacteristic(BLEUUID(LOVE_PROPOSAL_UUID));
-  BLERemoteCharacteristic *chResp     = svc->getCharacteristic(BLEUUID(LOVE_RESPONSE_UUID));
+  BLERemoteCharacteristic *chProposal = svc->getCharacteristic(BLEUUID(CFG::LOVE_PROPOSAL_UUID));
+  BLERemoteCharacteristic *chResp     = svc->getCharacteristic(BLEUUID(CFG::LOVE_RESPONSE_UUID));
 
   if (!chProposal || !chResp) {
     Serial.println("[HANDSHAKE] Características proposal/resp não encontradas.");
@@ -793,12 +896,13 @@ static bool doHandshakeWith(BLEAdvertisedDevice *device, const String &nomePuro)
   }
 
   // envia proposta
-  String proposal = String("PROPOSE:") + String(NAME);
+  String proposal = String("PROPOSE:") + String(CFG::NAME);
   chProposal->writeValue((uint8_t*)proposal.c_str(), proposal.length(), true);
 
-  // readValue aqui retorna String no seu core
+  // compatível com cores que retornam std::string
   String resp = chResp->readValue();
   resp.trim();
+
 
   Serial.print("[HANDSHAKE] Resposta: ");
   Serial.println(resp);
@@ -823,7 +927,7 @@ static bool doHandshakeWith(BLEAdvertisedDevice *device, const String &nomePuro)
   }
 
   client->disconnect();
-  delete client; // <-- deleteClient não existe
+  delete client;
   return ok;
 }
 
@@ -862,8 +966,6 @@ void aplicaEfeitoNaoGosta(Relacao &rel, const String &nomePuro) {
   pctEntediado = min(100, pctEntediado + 1);
   pctBravo     = min(100, pctBravo + 1);
 
-  // Se eu estava apaixonado por ele e agora “não gosta” (mudança improvável),
-  // reduz amor mais rápido
   if (localIsInLove() && currentPartner == nomePuro) {
     pctApaixonado = max(0, pctApaixonado - 5);
     pctTriste = min(100, pctTriste + 2);
@@ -901,13 +1003,13 @@ void buzzerMaxIfSupported() {
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin(2, 3);
+  Wire.begin(CFG::I2C_SDA, CFG::I2C_SCL);
 
   // Se você NÃO quer resetar tudo sempre, comenta:
   limpaTodaEEPROM();
   // inicializaEEPROMSempre();
 
-  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+  if (!display.begin(SSD1306_SWITCHCAPVCC, CFG::OLED_ADDR)) {
     Serial.println(F("Erro ao inicializar o display OLED"));
     while (true);
   }
@@ -916,51 +1018,55 @@ void setup() {
   display.setTextSize(4);
   display.setTextColor(SSD1306_WHITE);
   int16_t x1, y1; uint16_t w, h;
-  display.getTextBounds(NAME, 0, 0, &x1, &y1, &w, &h);
-  int16_t x = (SCREEN_WIDTH - w) / 2;
-  int16_t y = (SCREEN_HEIGHT - h) / 2;
+  display.getTextBounds(CFG::NAME, 0, 0, &x1, &y1, &w, &h);
+  int16_t x = (CFG::SCREEN_WIDTH - w) / 2;
+  int16_t y = (CFG::SCREEN_HEIGHT - h) / 2;
   display.setCursor(x, y);
-  display.println(NAME);
+  display.println(CFG::NAME);
   display.display();
   delay(3000);
   display.clearDisplay();
 
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(CFG::BUTTON_PIN, INPUT_PULLUP);
+  // ADC (bateria no pino 1)
+  pinMode(CFG::BAT_ADC_PIN, INPUT);
+  analogSetPinAttenuation(CFG::BAT_ADC_PIN, ADC_11db); // melhor faixa de leitura
+
 
   // Inicia task de UI (display), para que o BLE scan não congele a animação.
   xTaskCreatePinnedToCore(uiTask, "uiTask", 4096, nullptr, 1, &uiTaskHandle, 0);
 
-  buzzer.begin(BUZZER_PIN);
+  buzzer.begin(CFG::BUZZER_PIN);
   buzzerMaxIfSupported();
 
   loadHumorFromEEPROM();
   rebuildPartnerFromRelacoes();
 
-  BLEDevice::init(String("DeskBuddy: ") + NAME);
+  BLEDevice::init(String("DeskBuddy: ") + CFG::NAME);
 
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
   pServer->getAdvertising()->setMinPreferred(0x06);
   pServer->getAdvertising()->setMinPreferred(0x12);
 
-  BLEService *pService = pServer->createService(SERVICE_UUID);
+  BLEService *pService = pServer->createService(CFG::SERVICE_UUID);
 
   // Status JSON
   pCharacteristic = pService->createCharacteristic(
-    CHARACTERISTIC_UUID,
+    CFG::CHARACTERISTIC_UUID,
     BLECharacteristic::PROPERTY_READ
   );
   pCharacteristic->setValue(getHumorJSON().c_str());
 
   // Handshake amor/amizade
   pLoveProposal = pService->createCharacteristic(
-    LOVE_PROPOSAL_UUID,
+    CFG::LOVE_PROPOSAL_UUID,
     BLECharacteristic::PROPERTY_WRITE
   );
   pLoveProposal->setCallbacks(new LoveProposalCallbacks());
 
   pLoveResponse = pService->createCharacteristic(
-    LOVE_RESPONSE_UUID,
+    CFG::LOVE_RESPONSE_UUID,
     BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
   );
   pLoveResponse->setValue(lastLoveResp.c_str());
@@ -977,7 +1083,7 @@ void setup() {
 
 void loop() {
   processSerialCommands();
-
+  updateBatteryIfNeeded();
   // update buzzer
   portENTER_CRITICAL(&buzzerMux);
   buzzer.update();
@@ -987,21 +1093,21 @@ void loop() {
   applyLoveDecayIfMissingPartner();
 
   // Botão de carinho
-  if (digitalRead(BUTTON_PIN) == LOW && (millis() - lastButtonTime > 500)) {
+  if (digitalRead(CFG::BUTTON_PIN) == LOW && (millis() - lastButtonTime > CFG::BUTTON_DEBOUNCE_MS)) {
     lastButtonTime = millis();
 
     bool alterouFeliz = false, alterouTriste = false, alterouBravo = false, alterouEnt = false;
 
-    if (pctFeliz < 100) { pctFeliz += CARINHO_UP_FELIZ; alterouFeliz = true; }
-    if (pctTriste > 0) { pctTriste -= CARINHO_DOWN_OUTRAS; alterouTriste = true; }
-    if (pctBravo  > 0) { pctBravo  -= CARINHO_DOWN_OUTRAS; alterouBravo  = true; }
-    if (pctEntediado > 0) { pctEntediado -= CARINHO_DOWN_OUTRAS; alterouEnt = true; }
+    if (pctFeliz < 100) { pctFeliz += CFG::CARINHO_UP_FELIZ; alterouFeliz = true; }
+    if (pctTriste > 0) { pctTriste -= CFG::CARINHO_DOWN_OUTRAS; alterouTriste = true; }
+    if (pctBravo  > 0) { pctBravo  -= CFG::CARINHO_DOWN_OUTRAS; alterouBravo  = true; }
+    if (pctEntediado > 0) { pctEntediado -= CFG::CARINHO_DOWN_OUTRAS; alterouEnt = true; }
 
     normalizaEmocoesAvancada(alterouFeliz, alterouTriste, alterouBravo, alterouEnt, false);
     saveHumorToEEPROM();
     pCharacteristic->setValue(getHumorJSON().c_str());
 
-    // >>> agora som SEMPRE começa junto com a emoção (na uiTask)
+    // som SEMPRE começa junto com a emoção (na uiTask)
     requestOverrideEmotion("feliz", true, true);
 
     Serial.println("[CARINHO] Felicidade +3, Tristeza/Bravo/Tédio -1.");
@@ -1009,23 +1115,22 @@ void loop() {
 
   // Decaimento por inatividade (se não estiver forçando emoção)
   static unsigned long lastDecay = millis();
-  if (millis() - lastDecay > DECAY_INTERVAL_MS && forcedEmotion.length() == 0) {
+  if (millis() - lastDecay > CFG::DECAY_INTERVAL_MS && forcedEmotion.length() == 0) {
     lastDecay = millis();
 
     if (pctApaixonado > 0 && !localIsInLove()) {
-      // se não tem parceiro, amor vai caindo normalmente
-      pctApaixonado = max(0, pctApaixonado - 1);
+      pctApaixonado = max(0, pctApaixonado - CFG::DECAY_AMOR_SEM_PARCEIRO);
     }
 
     if (pctFeliz > 0) {
-      pctFeliz -= 5;
-      if (random(2) == 0) pctTriste += 1;
-      else pctEntediado += 1;
+      pctFeliz -= CFG::DECAY_FELIZ_SUB;
+      if (random(2) == 0) pctTriste += CFG::DECAY_TRISTE_ADD;
+      else pctEntediado += CFG::DECAY_ENTEDIADO_ADD;
       normalizaEmocoesAvancada(false, true, false, true, false);
       Serial.println("[DECAIMENTO] Felicidade -5, Tristeza ou Tédio +1.");
     } else {
-      if (random(2) == 0 && pctTriste < 100) pctTriste += 1;
-      else if (pctEntediado < 100) pctEntediado += 1;
+      if (random(2) == 0 && pctTriste < 100) pctTriste += CFG::DECAY_TRISTE_ADD;
+      else if (pctEntediado < 100) pctEntediado += CFG::DECAY_ENTEDIADO_ADD;
       normalizaEmocoesAvancada(false, true, false, true, false);
       Serial.println("[DECAIMENTO] Tristeza ou Tédio +1.");
     }
@@ -1037,19 +1142,16 @@ void loop() {
   // Scan BLE (agendado)
   static BLEScan* pBLEScan = BLEDevice::getScan();
 
-  const unsigned long SCAN_INTERVAL_DISCONNECTED_MS = 1200;
-  const unsigned long SCAN_INTERVAL_CONNECTED_MS    = 6000;
-
   bool ranScan = false;
   BLEScanResults* results = nullptr;
 
-  unsigned long scanEvery = bleConnected ? SCAN_INTERVAL_CONNECTED_MS : SCAN_INTERVAL_DISCONNECTED_MS;
+  unsigned long scanEvery = bleConnected ? CFG::SCAN_INTERVAL_CONNECTED_MS : CFG::SCAN_INTERVAL_DISCONNECTED_MS;
   if (millis() - lastScanMs >= scanEvery) {
     lastScanMs = millis();
     ranScan = true;
 
     pBLEScan->setActiveScan(!bleConnected);
-    results = pBLEScan->start(1, false);
+    results = pBLEScan->start(CFG::SCAN_DURATION_SEC, false);
   }
 
   bool emInteracao = false;
@@ -1062,10 +1164,10 @@ void loop() {
       if (nameStd.length() > 0 && nameStd.indexOf("DeskBuddy") != -1) {
         String nomePuro = extraiNomeDeskBuddy(nameStd);
 
-        if (nomePuro.length() > 0 && nomePuro != String(NAME) && !jaTemNomeNoBuffer(nomePuro)) {
+        if (nomePuro.length() > 0 && nomePuro != String(CFG::NAME) && !jaTemNomeNoBuffer(nomePuro)) {
           encontrados[idxEncontrado] = nomePuro;
-          idxEncontrado = (idxEncontrado + 1) % MAX_ENCONTRADOS;
-          if (countEncontrados < MAX_ENCONTRADOS) countEncontrados++;
+          idxEncontrado = (idxEncontrado + 1) % CFG::MAX_ENCONTRADOS;
+          if (countEncontrados < CFG::MAX_ENCONTRADOS) countEncontrados++;
           salvaBufferEncontradosEEPROM();
         }
 
@@ -1073,7 +1175,7 @@ void loop() {
         Relacao &rel = relacoes[idx];
 
         unsigned long nowInteract = millis();
-        if (nowInteract - lastInteractionTime < DECAY_INTERVAL_MS) {
+        if (nowInteract - lastInteractionTime < CFG::DECAY_INTERVAL_MS) {
           Serial.println("[INTERACAO] Cooldown ativo, ignorando interação.");
           break;
         }
@@ -1092,9 +1194,9 @@ void loop() {
         }
 
         // Define relação na 2ª interação
-        if (!rel.relacaoDefinida && rel.contador >= INTERACOES_PRA_DEFINIR_RELACAO) {
+        if (!rel.relacaoDefinida && rel.contador >= CFG::INTERACOES_PRA_DEFINIR_RELACAO) {
           int sorte = random(100);
-          rel.gosta = (sorte < 70);
+          rel.gosta = (sorte < CFG::CHANCE_GOSTAR_PRIMEIRA_PERCENT);
           rel.relacaoDefinida = true;
           rel.segundaChanceConcedida = false;
 
@@ -1102,9 +1204,9 @@ void loop() {
           else Serial.println("[RELACAO] Após 2 interações: NÃO GOSTA (30%) - Segunda chance após 6 interações.");
         }
         // Segunda chance (se não gostava)
-        else if (rel.relacaoDefinida && !rel.gosta && !rel.segundaChanceConcedida && rel.contador >= INTERACOES_PRA_SEGUNDA_CHANCE) {
+        else if (rel.relacaoDefinida && !rel.gosta && !rel.segundaChanceConcedida && rel.contador >= CFG::INTERACOES_PRA_SEGUNDA_CHANCE) {
           int sorte2 = random(100);
-          rel.gosta = (sorte2 < 50);
+          rel.gosta = (sorte2 < CFG::CHANCE_GOSTAR_SEGUNDA_PERCENT);
           rel.segundaChanceConcedida = true;
 
           if (rel.gosta) Serial.println("[RELACAO] Segunda chance: AGORA GOSTA (50%)");
@@ -1116,16 +1218,10 @@ void loop() {
           if (rel.gosta) {
             aplicaEfeitoGosta(rel, nomePuro);
 
-            // >>> NOVO: amor só pode existir via HANDSHAKE recíproco
-            // Só tenta handshake se:
-            // - ambos já se gostam (o outro só confirma se ele gostar e aceitar)
-            // - já passou do limiar de interações
-            // - eu não estou apaixonado por outro
+            // amor só pode existir via HANDSHAKE recíproco
             if (!localIsInLove() || currentPartner == nomePuro) {
-              if (rel.contador >= INTERACOES_PRA_APAIXONAR && !rel.apaixonado) {
-                // tenta handshake (client) com o device encontrado
+              if (rel.contador >= CFG::INTERACOES_PRA_APAIXONAR && !rel.apaixonado) {
                 (void)doHandshakeWith(&device, nomePuro);
-                // rebuild caso tenha sido marcado via resposta
                 rebuildPartnerFromRelacoes();
               }
             }
