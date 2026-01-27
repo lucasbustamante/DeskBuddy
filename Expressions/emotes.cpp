@@ -946,3 +946,69 @@ void bored(int xx, int yy, int tt){
   display.display();
   smartDelay(tt);
 }
+
+
+void nauseous(int xx, int yy, int tt){
+
+    for (int i = 0; i < 5; i++) {
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes204, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+  display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes205, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+    display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes206, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+    display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes207, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+    display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes208, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+    display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes209, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+    display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes210, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+      display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes211, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+      display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes212, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+      display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes213, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+      display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes214, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+      display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes215, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+    }
+}

@@ -40,4 +40,6 @@ void hunger(int xx, int yy, int tt);
 
 void bored(int xx, int yy, int tt);
 
+void nauseous(int xx, int yy, int tt);
+
 #endif
