@@ -70,16 +70,19 @@ class Settings extends StatelessWidget {
     // ✅ Garante que a LoginPage seja carregada como nova raiz
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (_) => LoginPage(
+        builder: (context) => LoginPage(
           onLoginSuccess: (name, password) {
-            Navigator.of(_).pushReplacement(
-              MaterialPageRoute(builder: (_) => DeskBuddyHomePage2()),
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (context) => DeskBuddyHomePage2(),
+              ),
             );
           },
         ),
       ),
           (route) => false,
     );
+
 
     // ✅ Após navegar, força reconstrução da árvore do app
     Future.delayed(const Duration(milliseconds: 100), () {
