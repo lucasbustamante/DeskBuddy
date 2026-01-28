@@ -48,8 +48,8 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       home: LoginPage(
         // ✅ sempre usa o contexto atual do MaterialApp reconstruído
-        onLoginSuccess: (name, password) {
-          Navigator.of(context).pushReplacement(
+        onLoginSuccess: (ctx, name, password) {
+          Navigator.of(ctx).pushReplacement(
             MaterialPageRoute(builder: (_) =>  DeskBuddyHomePage2()),
           );
         },
@@ -71,8 +71,8 @@ class Settings extends StatelessWidget {
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (context) => LoginPage(
-          onLoginSuccess: (name, password) {
-            Navigator.of(context).pushReplacement(
+          onLoginSuccess: (ctx, name, password) {
+            Navigator.of(ctx).pushReplacement(
               MaterialPageRoute(
                 builder: (context) => DeskBuddyHomePage2(),
               ),

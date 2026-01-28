@@ -48,9 +48,9 @@ class _SplashScreenState extends State<SplashScreen> {
         isLoggedIn
             ? DeskBuddyHomePage2()
             : LoginPage(
-          onLoginSuccess: (name, password) {
+          onLoginSuccess: (ctx, name, password) {
             Navigator.pushReplacement(
-              context,
+              ctx,
               MaterialPageRoute(builder: (_) => DeskBuddyHomePage2()),
             );
           },

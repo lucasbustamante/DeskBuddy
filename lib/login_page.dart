@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class LoginPage extends StatefulWidget {
-  final Function(String, String) onLoginSuccess;
+  final void Function(BuildContext, String, String) onLoginSuccess;
 
   const LoginPage({Key? key, required this.onLoginSuccess}) : super(key: key);
 
@@ -22,6 +22,7 @@ class _LoginPageState extends State<LoginPage> {
 
   String? _error;
   bool _scanning = false;
+  bool _connecting = false;
 
   List<String> _buddyNames = [];
   Map<String, BluetoothDevice> _buddyDevices = {};
@@ -217,6 +218,8 @@ class _LoginPageState extends State<LoginPage> {
 
     bool senhaOk = false;
 
+    setState(() { _connecting = true; _error = null; });
+
     try {
       try {
         await buddyDevice.connect(timeout: const Duration(seconds: 5));
@@ -249,12 +252,13 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       await buddyDevice.disconnect();
+      if (mounted) setState(() { _connecting = false; });
     } catch (e) {
       try {
         await buddyDevice.disconnect();
       } catch (_) {}
 
-      setState(() => _error = "Erro ao conectar ao Buddy: $e");
+      if (mounted) setState(() { _connecting = false; _error = "Erro ao conectar ao Buddy: $e"; });
       return;
     }
 
@@ -263,9 +267,10 @@ class _LoginPageState extends State<LoginPage> {
       await prefs.setString('deskbuddy_nome', name);
       await prefs.setString('deskbuddy_senha', password);
 
-      widget.onLoginSuccess(name, password);
+      if (mounted) setState(() { _connecting = false; });
+      widget.onLoginSuccess(context, name, password);
     } else {
-      setState(() => _error = "Senha incorreta para este Buddy.");
+      if (mounted) setState(() { _connecting = false; _error = "Senha incorreta para este Buddy."; });
     }
   }
 
@@ -350,12 +355,18 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   const SizedBox(height: 20),
                   ElevatedButton(
-                    onPressed: _login,
+                    onPressed: (_connecting) ? null : _login,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.deepOrange,
                       minimumSize: const Size(160, 50),
                     ),
-                    child: const Text("Conectar"),
+                    child: _connecting
+                        ? const SizedBox(
+                            height: 22,
+                            width: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text("Conectar"),
                   ),
                 ],
               ],

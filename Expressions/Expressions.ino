@@ -27,8 +27,8 @@
 namespace CFG {
 
   // -------- Identidade --------
-  static constexpr const char* NAME  = "Kizmo";
-  static constexpr const char* SENHA = "oi23";
+  static constexpr const char* NAME  = "Bliko";
+  static constexpr const char* SENHA = "oi33";
 
   // -------- Display / I2C --------
   static constexpr int SCREEN_WIDTH  = 128;
@@ -50,7 +50,7 @@ namespace CFG {
   static constexpr float BAT_R_BOTTOM = 100000.0f;
 
   static constexpr float BAT_FULL_V  = 3.70f; // 100%
-  static constexpr float BAT_EMPTY_V = 2.90f; // 0%
+  static constexpr float BAT_EMPTY_V = 2.50f; // 0%
 
   static constexpr int   BAT_LOW_PERCENT = 15;
   static constexpr unsigned long BAT_READ_EVERY_MS = 5000;
@@ -564,6 +564,12 @@ String getHumorJSON() {
   json += "\"dominante\":\"" + getDominantEmotion() + "\",";
   json += "\"nome\":\"" + String(CFG::NAME) + "\",";
   json += "\"senha\":\"" + String(CFG::SENHA) + "\",";
+  json += "\"bateria_pct\":" + String(g_batteryPercent) + ",";
+  json += "\"bateria_v\":" + String(g_batteryVoltage, 3) + ",";
+  json += "\"bateria_low\":" + String(g_lowBattery ? "true" : "false") + ",";
+  json += "\"ble_app_conectado\":" + String(bleConnected ? "true" : "false") + ",";
+  json += "\"sleeping\":" + String(g_displaySleeping ? "true" : "false") + ",";
+  json += "\"ldr_mv\":" + String(g_ldrMv) + ",";
   json += "\"parceiro\":\"" + currentPartner + "\",";
   json += "\"encontrados\":[";
   bool first = true;
@@ -1086,6 +1092,9 @@ class MyServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) override {
     bleConnected = true;
     Serial.println("BLE Conectado");
+    // ✅ mantém o DeskBuddy "achável" mesmo com o app conectado
+    delay(20);
+    pServer->getAdvertising()->start();
   }
   void onDisconnect(BLEServer* pServer) override {
     bleConnected = false;
@@ -1442,7 +1451,15 @@ void loop() {
     lastScanMs = millis();
     ranScan = true;
 
-    pBLEScan->setActiveScan(!bleConnected);
+    pBLEScan->setActiveScan(true); // ✅ sempre ativo para pegar o nome no scan-response (necessário p/ interação Buddy↔Buddy mesmo com app conectado)
+    // ✅ reduz uso de rádio quando já está conectado ao app
+    if (bleConnected) {
+      pBLEScan->setInterval(240);
+      pBLEScan->setWindow(45);
+    } else {
+      pBLEScan->setInterval(120);
+      pBLEScan->setWindow(80);
+    }
     results = pBLEScan->start(CFG::SCAN_DURATION_SEC, false);
   }
 
@@ -1559,6 +1576,8 @@ void loop() {
       }
     }
   }
+
+  if (ranScan) pBLEScan->clearResults(); // limpa depois de processar (senão zera results antes)
 
   if (!emInteracao) {
     showEmoteOnDisplay();

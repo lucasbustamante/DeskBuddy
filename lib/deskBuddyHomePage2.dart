@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:deskbuddy/bleController.dart';
 import 'package:deskbuddy/settings.dart';
 import 'package:flutter/material.dart';
@@ -323,7 +325,59 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
                       ),
                     ),
                   ),
-                SizedBox(height: 24),
+                
+                const SizedBox(height: 10),
+                Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                  elevation: 2,
+                  child: Padding(
+                    padding: const EdgeInsets.all(14.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Status: ${bleController.status}",
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 6,
+                          children: [
+                            _InfoChip(label: "Dominante", value: bleController.emocoes['dominante']),
+                            _InfoChip(label: "Parceiro", value: bleController.emocoes['parceiro']),
+                            _InfoChip(label: "Bateria", value: bleController.emocoes['bateria_pct'] != null ? "${bleController.emocoes['bateria_pct']}%" : null),
+                            _InfoChip(label: "Bateria (V)", value: bleController.emocoes['bateria_v']),
+                            _InfoChip(label: "Low", value: bleController.emocoes['bateria_low']),
+                            _InfoChip(label: "BLE App", value: bleController.emocoes['ble_app_conectado']),
+                            _InfoChip(label: "Sleeping", value: bleController.emocoes['sleeping']),
+                            _InfoChip(label: "LDR (mV)", value: bleController.emocoes['ldr_mv']),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        ExpansionTile(
+                          tilePadding: EdgeInsets.zero,
+                          title: const Text("JSON completo (debug)"),
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.black12.withOpacity(0.04),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Text(
+                                const JsonEncoder.withIndent("  ").convert(bleController.emocoes),
+                                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+SizedBox(height: 24),
                 // Barras de emoções (exceto encontrados e dominante)
                 ...bleController.emocoes.entries
                     .where((e) => e.key != 'dominante' && e.key != 'encontrados' && e.key != 'nome')
@@ -388,5 +442,29 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
   String capitalize(String s) {
     if (s.isEmpty) return s;
     return s[0].toUpperCase() + s.substring(1);
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final String label;
+  final dynamic value;
+
+  const _InfoChip({super.key, required this.label, this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final v = (value == null) ? '-' : value.toString();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.orange.withOpacity(0.25)),
+      ),
+      child: Text(
+        "$label: $v",
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+      ),
+    );
   }
 }
