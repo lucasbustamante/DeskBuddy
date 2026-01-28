@@ -27,18 +27,17 @@
 namespace CFG {
 
   // -------- Identidade --------
-  static constexpr const char* NAME  = "Bliko";
-  static constexpr const char* SENHA = "oi33";
+  static constexpr const char* NAME  = "Kizmo";
+  static constexpr const char* SENHA = "oi23";
 
   // -------- Display / I2C --------
   static constexpr int SCREEN_WIDTH  = 128;
   static constexpr int SCREEN_HEIGHT = 64;
   static constexpr int OLED_RESET    = -1;
   static constexpr uint8_t OLED_ADDR = 0x3C;
-  
-static constexpr int I2C_SDA = 2;
-static constexpr int I2C_SCL = 3;
 
+  static constexpr int I2C_SDA = 2;
+  static constexpr int I2C_SCL = 3;
 
   // -------- IO --------
   static constexpr int BUTTON_PIN = 6;
@@ -55,6 +54,23 @@ static constexpr int I2C_SCL = 3;
 
   static constexpr int   BAT_LOW_PERCENT = 15;
   static constexpr unsigned long BAT_READ_EVERY_MS = 5000;
+
+  // ======================================================
+  //  ✅ GLDR (LDR) - Luminosidade / "Dormir"
+  //  Ligação: LDR -> 3V3, resistor -> GND, meio -> GPIO8 (ADC)
+  // ======================================================
+  static constexpr int LDR_ADC_PIN = 8;                 // ✅ você pediu pino 8
+  static constexpr unsigned long LDR_READ_EVERY_MS = 300; // leitura da luz
+  // Como seu divisor fica "baixo no escuro", usamos mV baixo = escuro.
+  static constexpr int LDR_DARK_MV_THRESHOLD  = 180;    // entra em "dormir" abaixo disso
+  static constexpr int LDR_WAKE_MV_THRESHOLD  = 280;    // acorda acima disso (histerese)
+  static constexpr unsigned long LDR_DARK_DEBOUNCE_MS = 2500; // precisa ficar escuro por X ms
+
+  // Sequência de "dormir":
+  // 1) toca som + animação (placeholder: apaixonado)
+  // 2) depois apaga a tela (DISPLAYOFF) e para sons
+  static constexpr unsigned long SLEEP_PREP_ANIM_MS = 2500;   // quanto tempo mostra o "dormindo" (apaixonado)
+  static constexpr unsigned long SLEEP_PREP_SOUND_MS = 900;   // quanto tempo deixa o som tocar (depois silencia)
 
   // -------- EEPROM --------
   static constexpr int EEPROM_SIZE = 1024;
@@ -116,23 +132,16 @@ static constexpr int I2C_SCL = 3;
 
   // ======================================================
   //  ✅ MPU9250: DETECÇÃO DE CAMINHADA E AGITAÇÃO
-  //  - "walking" => igual CARINHO (feliz + som + melhora humor)
-  //  - "shake"   => "enjoado" (por enquanto usa rosto/som de apaixonado)
   // ======================================================
-
   static constexpr unsigned long MPU_READ_EVERY_MS = 40; // ~25Hz
-
-  // Walking: pico de aceleração acima disso (em "g") conta como passo
   static constexpr float WALK_STEP_G_THRESHOLD = 0.18f;
-  static constexpr unsigned long WALK_STEP_MIN_INTERVAL_MS = 280;  // evita double-step
-  static constexpr unsigned long WALK_EVENT_COOLDOWN_MS    = 1800; // carinho via caminhada (tipo "1 carinho" a cada ~1.8s no máximo)
-  static constexpr int WALK_STEPS_TO_TRIGGER               = 3;    // 3 passos => carinho
+  static constexpr unsigned long WALK_STEP_MIN_INTERVAL_MS = 280;
+  static constexpr unsigned long WALK_EVENT_COOLDOWN_MS    = 1800;
+  static constexpr int WALK_STEPS_TO_TRIGGER               = 3;
 
-  // Shake: magnitude muito alta (g)
-  static constexpr float SHAKE_G_THRESHOLD = 1.10f;               // ajuste se precisar
-  static constexpr unsigned long SHAKE_EVENT_COOLDOWN_MS = 2500;  // evita spam
+  static constexpr float SHAKE_G_THRESHOLD = 1.10f;
+  static constexpr unsigned long SHAKE_EVENT_COOLDOWN_MS = 2500;
 
-  // Ajuste humor do "enjoado"
   static constexpr int NAUSEA_DOWN_FELIZ  = 4;
   static constexpr int NAUSEA_UP_ENTEDIO  = 3;
   static constexpr int NAUSEA_UP_TRISTE   = 1;
@@ -177,15 +186,12 @@ static bool mpu_begin_raw(){
   // accel AFS_SEL=0 => ±2g (0x1C)
   mpu_wr(0x1C, 0x00);
 
-  // (opcional) DLPF: 0x1A (0..6). 3 costuma ficar bom.
+  // (opcional) DLPF
   mpu_wr(0x1A, 0x03);
 
   return true;
 }
 
-// Converte raw -> g e dps com ranges acima:
-// accel LSB/g = 16384 (±2g)
-// gyro  LSB/dps = 131  (±250 dps)
 static void mpu_read_g(float &ax_g, float &ay_g, float &az_g, float &gx_dps, float &gy_dps, float &gz_dps){
   int16_t ax = mpu_rd16(0x3B);
   int16_t ay = mpu_rd16(0x3D);
@@ -223,6 +229,18 @@ static TaskHandle_t uiTaskHandle = nullptr;
 
 static const unsigned long DISPLAY_SOUND_MIN_GAP_MS = (unsigned long)CFG::DECAY_INTERVAL_MS * CFG::DISPLAY_SOUND_MIN_GAP_CYCLES;
 static const unsigned long AUTO_SOUND_MIN_GAP_MS    = (unsigned long)CFG::DECAY_INTERVAL_MS * CFG::AUTO_SOUND_MIN_GAP_CYCLES;
+
+// ======================================================
+//  ✅ GLDR (LDR) - Estado de "Dormir"
+// ======================================================
+enum SleepState : uint8_t { AWAKE = 0, SLEEP_PREP = 1, SLEEPING = 2 };
+static volatile bool g_displaySleeping = false;  // usado também pela uiTask
+static SleepState g_sleepState = AWAKE;
+static unsigned long g_lastLdrReadMs = 0;
+static int g_ldrMv = 0;
+static unsigned long g_darkSinceMs = 0;
+static unsigned long g_sleepPrepStartMs = 0;
+static unsigned long g_sleepSoundStopMs = 0;
 
 // ======================================================
 //  OBJETOS
@@ -283,14 +301,39 @@ static unsigned long lastWalkTriggerMs = 0;
 static unsigned long lastShakeTriggerMs = 0;
 static bool mpuOk = false;
 
-
 // ======================================================
-//  Forward declarations (pra evitar erro de “não declarado”)
+//  Forward declarations
 // ======================================================
 static void requestOverrideEmotion(const char *emo, bool requestSound, bool shortVariant);
 static void showEmoteOnDisplay();
 void normalizaEmocoesAvancada(bool acaoFoiFeliz=false, bool acaoFoiTriste=false, bool acaoFoiBravo=false, bool acaoFoiEntediado=false, bool acaoFoiApaixonado=false);
 static void saveHumorToEEPROM();
+
+// ======================================================
+//  ✅ GLDR (LDR) helpers
+// ======================================================
+static int readLdrMilliVolts() {
+  return (int)analogReadMilliVolts(CFG::LDR_ADC_PIN);
+}
+
+static void displaySetSleeping(bool sleeping) {
+  g_displaySleeping = sleeping;
+  if (sleeping) {
+    // apaga tela de verdade (economiza bem)
+    display.ssd1306_command(SSD1306_DISPLAYOFF);
+  } else {
+    display.ssd1306_command(SSD1306_DISPLAYON);
+    // limpa só pra não voltar “lixo”
+    display.clearDisplay();
+    display.display();
+  }
+}
+
+static void stopAllSoundsNow() {
+  portENTER_CRITICAL(&buzzerMux);
+  buzzer.stop(); // BuzzerScheduler tem stop() (se a sua versão não tiver, me fala que eu ajusto)
+  portEXIT_CRITICAL(&buzzerMux);
+}
 
 // ======================================================
 //  BATERIA helpers
@@ -561,7 +604,8 @@ static void requestOverrideEmotion(const char *emo, bool requestSound, bool shor
   strncpy(g_overrideEmotion, emo, sizeof(g_overrideEmotion) - 1);
   g_overrideEmotion[sizeof(g_overrideEmotion) - 1] = 0;
 
-  if (requestSound) {
+  // ✅ Se a tela está “dormindo”, não agenda som (pra ficar silencioso)
+  if (requestSound && !g_displaySleeping) {
     g_screenSoundPending = true;
     strncpy(g_screenSoundEmotion, emo, sizeof(g_screenSoundEmotion) - 1);
     g_screenSoundEmotion[sizeof(g_screenSoundEmotion) - 1] = 0;
@@ -629,6 +673,7 @@ static void startSoundLocked(uint8_t snd, bool isDisplay) {
 }
 
 static void tryPlayScreenSoundSynced(const char *emo, bool shortVariant) {
+  if (g_displaySleeping) return; // ✅ dormindo = sem som
   const unsigned long now = millis();
   portENTER_CRITICAL(&buzzerMux);
   bool ok = canStartAnySound(now, true);
@@ -639,6 +684,8 @@ static void tryPlayScreenSoundSynced(const char *emo, bool shortVariant) {
 static String lastAutoEmotion = "";
 
 static void tryPlayAutoDominantSound(const String &dominante) {
+  if (g_displaySleeping) return; // ✅ dormindo = sem som
+
   const unsigned long now = millis();
   if (now - lastDisplaySoundMs < DISPLAY_SOUND_MIN_GAP_MS) return;
 
@@ -671,6 +718,12 @@ static void uiTask(void *param) {
   char emo[16];
 
   while (true) {
+    // ✅ Se está dormindo, não renderiza (tela está OFF mesmo)
+    if (g_displaySleeping) {
+      vTaskDelay(20 / portTICK_PERIOD_MS);
+      continue;
+    }
+
     bool localOverride = false;
     bool localSoundPending = false;
     char localSoundEmo[16];
@@ -702,8 +755,7 @@ static void uiTask(void *param) {
     portEXIT_CRITICAL(&uiMux);
 
     if (localSoundPending) {
-      if (strcmp(localSoundEmo, emo) == 0) tryPlayScreenSoundSynced(emo, localSoundShort);
-      else tryPlayScreenSoundSynced(emo, localSoundShort);
+      tryPlayScreenSoundSynced(emo, localSoundShort);
     }
 
     runEmotionAnimation(emo, 0, 0, 75);
@@ -712,6 +764,7 @@ static void uiTask(void *param) {
 }
 
 void showEmoteOnDisplay() {
+  if (g_displaySleeping) return; // ✅ dormindo: não tenta animar/sons
   String dominante = getDominantEmotion();
   setAutoEmotion(dominante);
 
@@ -1046,7 +1099,6 @@ class MyServerCallbacks: public BLEServerCallbacks {
 //  ✅ MPU9250: eventos
 // ======================================================
 static void applyCarinhoEvent(const char* originTag) {
-  // Exatamente igual ao botão de carinho:
   bool alterouFeliz = false, alterouTriste = false, alterouBravo = false, alterouEnt = false;
 
   if (pctFeliz < 100) { pctFeliz += CFG::CARINHO_UP_FELIZ; alterouFeliz = true; }
@@ -1066,7 +1118,6 @@ static void applyCarinhoEvent(const char* originTag) {
 }
 
 static void applyNauseaEvent(const char* originTag) {
-  // “Enjoado” (placeholder: usa rosto e som de apaixonado, como você pediu)
   pctFeliz = max(0, pctFeliz - CFG::NAUSEA_DOWN_FELIZ);
   pctEntediado = min(100, pctEntediado + CFG::NAUSEA_UP_ENTEDIO);
   pctTriste = min(100, pctTriste + CFG::NAUSEA_UP_TRISTE);
@@ -1076,12 +1127,11 @@ static void applyNauseaEvent(const char* originTag) {
   saveHumorToEEPROM();
   if (pCharacteristic) pCharacteristic->setValue(getHumorJSON().c_str());
 
-  // Placeholder visual/sonoro enquanto não existe “enjoado”
   requestOverrideEmotion("enjoado", true, true);
 
   Serial.print("[ENJOADO/MPU] ");
   Serial.print(originTag);
-  Serial.println(" -> (placeholder apaixonado) Felicidade -, Entediado/Triste/Bravo +.");
+  Serial.println(" -> Felicidade -, Entediado/Triste/Bravo +.");
 }
 
 static void updateMpuAndDetectEvents() {
@@ -1092,11 +1142,9 @@ static void updateMpuAndDetectEvents() {
   float ax, ay, az, gx, gy, gz;
   mpu_read_g(ax, ay, az, gx, gy, gz);
 
-  // magnitude e dyn igual você já estava fazendo
   const float amag = sqrtf(ax*ax + ay*ay + az*az);
   const float dyn  = fabsf(amag - 1.0f);
 
-  // ---- Shake ----
   if (dyn > CFG::SHAKE_G_THRESHOLD) {
     if (now - lastShakeTriggerMs > CFG::SHAKE_EVENT_COOLDOWN_MS) {
       lastShakeTriggerMs = now;
@@ -1106,7 +1154,6 @@ static void updateMpuAndDetectEvents() {
     return;
   }
 
-  // ---- Walking ----
   if (dyn > CFG::WALK_STEP_G_THRESHOLD) {
     if (now - lastStepMs > CFG::WALK_STEP_MIN_INTERVAL_MS) {
       lastStepMs = now;
@@ -1126,6 +1173,82 @@ static void updateMpuAndDetectEvents() {
 }
 
 // ======================================================
+//  ✅ GLDR (LDR): update / máquina de estados do dormir
+// ======================================================
+static void updateLdrSleepIfNeeded() {
+  const unsigned long now = millis();
+  if (now - g_lastLdrReadMs < CFG::LDR_READ_EVERY_MS) return;
+  g_lastLdrReadMs = now;
+
+  g_ldrMv = readLdrMilliVolts();
+
+  const bool isDark = (g_ldrMv <= CFG::LDR_DARK_MV_THRESHOLD);
+  const bool isBrightEnoughToWake = (g_ldrMv >= CFG::LDR_WAKE_MV_THRESHOLD);
+
+  // Debug leve (comenta se quiser)
+  // Serial.print("[LDR] mV="); Serial.print(g_ldrMv); Serial.print(" state="); Serial.println((int)g_sleepState);
+
+  if (g_sleepState == AWAKE) {
+    if (isDark) {
+      if (g_darkSinceMs == 0) g_darkSinceMs = now;
+      if (now - g_darkSinceMs >= CFG::LDR_DARK_DEBOUNCE_MS) {
+        // entra no preparo do dormir
+        g_sleepState = SLEEP_PREP;
+        g_sleepPrepStartMs = now;
+        g_sleepSoundStopMs = now + CFG::SLEEP_PREP_SOUND_MS;
+
+        // garante tela ligada para mostrar a “animação de dormir”
+        if (g_displaySleeping) displaySetSleeping(false);
+
+        // placeholder: usar apaixonado como “dormindo”
+        requestOverrideEmotion("apaixonado", true, true);
+        Serial.print("[SLEEP] Escuro detectado (mV=");
+        Serial.print(g_ldrMv);
+        Serial.println(") -> SLEEP_PREP (mostra + som, depois apaga tela)");
+      }
+    } else {
+      g_darkSinceMs = 0;
+    }
+  }
+  else if (g_sleepState == SLEEP_PREP) {
+    // Se clareou durante o preparo, cancela e volta
+    if (isBrightEnoughToWake) {
+      g_sleepState = AWAKE;
+      g_darkSinceMs = 0;
+      Serial.println("[SLEEP] Clareou durante SLEEP_PREP -> volta AWAKE.");
+      showEmoteOnDisplay();
+      return;
+    }
+
+    // para o som depois de um tempo (mesmo antes de apagar a tela)
+    if (!g_displaySleeping && now >= g_sleepSoundStopMs) {
+      stopAllSoundsNow();
+    }
+
+    // depois do tempo de animação, apaga tela e entra “SLEEPING”
+    if (now - g_sleepPrepStartMs >= CFG::SLEEP_PREP_ANIM_MS) {
+      stopAllSoundsNow();
+      displaySetSleeping(true);
+      g_sleepState = SLEEPING;
+      Serial.println("[SLEEP] Tela OFF. (BLE continua, resto continua)");
+    }
+  }
+  else { // SLEEPING
+    // Se voltou a luz, acorda
+    if (isBrightEnoughToWake) {
+      displaySetSleeping(false);
+      g_sleepState = AWAKE;
+      g_darkSinceMs = 0;
+      Serial.println("[SLEEP] Acordou (luz voltou) -> Tela ON.");
+      showEmoteOnDisplay();
+    } else {
+      // garante silêncio total dormindo
+      stopAllSoundsNow();
+    }
+  }
+}
+
+// ======================================================
 //  SETUP / LOOP
 // ======================================================
 void buzzerMaxIfSupported() {
@@ -1134,35 +1257,36 @@ void buzzerMaxIfSupported() {
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin(CFG::I2C_SDA, CFG::I2C_SCL);                 // I2C do display (2/3)
-Serial.println("I2C scan...");
-for (uint8_t addr = 1; addr < 127; addr++) {
-  Wire.beginTransmission(addr);
-  if (Wire.endTransmission() == 0) {
-    Serial.print("Found 0x");
-    Serial.println(addr, HEX);
+  Wire.begin(CFG::I2C_SDA, CFG::I2C_SCL);
+
+  Serial.println("I2C scan...");
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      Serial.print("Found 0x");
+      Serial.println(addr, HEX);
+    }
   }
-}
-Serial.println("Scan done.");
+  Serial.println("Scan done.");
 
-Wire.setClock(400000);          // (opcional, mas ajuda)
+  Wire.setClock(400000);
 
-auto probe = [&](uint8_t a){
-  Wire.beginTransmission(a);
-  return (Wire.endTransmission() == 0);
-};
+  auto probe = [&](uint8_t a){
+    Wire.beginTransmission(a);
+    return (Wire.endTransmission() == 0);
+  };
 
-if (probe(0x68)) MPU_ADDR = 0x68;
-else if (probe(0x69)) MPU_ADDR = 0x69;
-else MPU_ADDR = 0x68; // fallback
+  if (probe(0x68)) MPU_ADDR = 0x68;
+  else if (probe(0x69)) MPU_ADDR = 0x69;
+  else MPU_ADDR = 0x68;
 
-mpuOk = mpu_begin_raw();        // <-- ISSO É O QUE FALTAVA!
+  mpuOk = mpu_begin_raw();
 
-if (!mpuOk) {
-  Serial.println("[MPU] Falhou init raw. Vou continuar SEM MPU.");
-} else {
-  Serial.println("[MPU] OK (raw ACC/GYRO em 0x68).");
-}
+  if (!mpuOk) {
+    Serial.println("[MPU] Falhou init raw. Vou continuar SEM MPU.");
+  } else {
+    Serial.println("[MPU] OK (raw ACC/GYRO em 0x68).");
+  }
 
   // Se você NÃO quer resetar tudo sempre, comenta:
   limpaTodaEEPROM();
@@ -1187,8 +1311,13 @@ if (!mpuOk) {
   display.clearDisplay();
 
   pinMode(CFG::BUTTON_PIN, INPUT_PULLUP);
+
   pinMode(CFG::BAT_ADC_PIN, INPUT);
   analogSetPinAttenuation(CFG::BAT_ADC_PIN, ADC_11db);
+
+  // ✅ LDR no pino 8 (ADC)
+  pinMode(CFG::LDR_ADC_PIN, INPUT);
+  analogSetPinAttenuation(CFG::LDR_ADC_PIN, ADC_11db);
 
   // Inicia task de UI
   xTaskCreatePinnedToCore(uiTask, "uiTask", 4096, nullptr, 1, &uiTaskHandle, 0);
@@ -1198,10 +1327,6 @@ if (!mpuOk) {
 
   loadHumorFromEEPROM();
   rebuildPartnerFromRelacoes();
-
-  // Dica: se você quiser calibrar, descomenta (precisa deixar parado):
-  // Serial.println("[MPU] Calibrando... não mexa!");
-  // Serial.println("[MPU] Calibração OK");
 
   if (mpuOk) Serial.println("[MPU] OK (tentando ler dados)");
 
@@ -1240,11 +1365,16 @@ if (!mpuOk) {
   showEmoteOnDisplay();
 
   Serial.println("Digite: FELIZ/TRISTE/ENTEDIADO/BRAVO/NORMAL/APAIXONADO ou AUTO.");
-  Serial.println("MPU: caminhando => carinho (feliz+som). Agitar forte => enjoado (placeholder apaixonado).");
+  Serial.println("MPU: caminhando => carinho. Agitar forte => enjoado.");
+  Serial.println("LDR (GPIO8): escuro -> 'dormir' (placeholder apaixonado) -> tela OFF (BLE continua).");
 }
 
 void loop() {
   processSerialCommands();
+
+  // ✅ LDR / dormir (primeiro, pra evitar render/som quando já está apagando)
+  updateLdrSleepIfNeeded();
+
   updateBatteryIfNeeded();
 
   // ✅ MPU events (walking/shake)
@@ -1256,8 +1386,8 @@ void loop() {
 
   applyLoveDecayIfMissingPartner();
 
-  // Botão de carinho
-  if (digitalRead(CFG::BUTTON_PIN) == LOW && (millis() - lastButtonTime > CFG::BUTTON_DEBOUNCE_MS)) {
+  // Botão de carinho (mantido)
+  if (!g_displaySleeping && digitalRead(CFG::BUTTON_PIN) == LOW && (millis() - lastButtonTime > CFG::BUTTON_DEBOUNCE_MS)) {
     lastButtonTime = millis();
 
     bool alterouFeliz = false, alterouTriste = false, alterouBravo = false, alterouEnt = false;
