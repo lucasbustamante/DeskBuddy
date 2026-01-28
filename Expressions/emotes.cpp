@@ -950,7 +950,7 @@ void bored(int xx, int yy, int tt){
 
 void nauseous(int xx, int yy, int tt){
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 3; i++) {
   display.clearDisplay();
   display.drawBitmap(xx, yy, emotes204, 128, 64, 1);
   display.display();
