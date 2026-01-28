@@ -27,8 +27,8 @@
 namespace CFG {
 
   // -------- Identidade --------
-  static constexpr const char* NAME  = "Bliko";
-  static constexpr const char* SENHA = "oi33";
+  static constexpr const char* NAME  = "Kizmo";
+  static constexpr const char* SENHA = "oi23";
 
   // -------- Display / I2C --------
   static constexpr int SCREEN_WIDTH  = 128;
