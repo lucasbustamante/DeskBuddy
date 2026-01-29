@@ -367,10 +367,10 @@ static void updateBatteryIfNeeded() {
   Serial.print(g_batteryVoltage, 2);
   Serial.print("V  %=");
   Serial.print(g_batteryPercent);
-  Serial.println(g_lowBattery ? "  (LOW -> HUNGER)" : "");
+  Serial.println(g_lowBattery ? "  (LOW -> FOME)" : "");
 
   if (!wasLow && g_lowBattery) {
-    requestOverrideEmotion("hunger", true, false);
+    requestOverrideEmotion("fome", true, false);
   }
 }
 
@@ -544,12 +544,12 @@ String getDominantEmotion() {
   String realDom = getRealDominantEmotion();
   if (!g_lowBattery) return realDom;
 
-  static const unsigned long HUNGER_SHOW_MS = 2000;
+  static const unsigned long FOME_SHOW_MS = 2000;
   static const unsigned long REAL_SHOW_MS   = 2000;
-  static const unsigned long CYCLE_MS       = HUNGER_SHOW_MS + REAL_SHOW_MS;
+  static const unsigned long CYCLE_MS       = FOME_SHOW_MS + REAL_SHOW_MS;
 
   unsigned long t = millis() % CYCLE_MS;
-  if (t < HUNGER_SHOW_MS) return "hunger";
+  if (t < FOME_SHOW_MS) return "fome";
   return realDom;
 }
 
@@ -633,7 +633,7 @@ static void runEmotionAnimation(const char *emo, int xx=0, int yy=0, int tt=75) 
     angry(xx, yy, tt);
   } else if (strcmp(emo, "suspeita") == 0) {
     suspicion(xx, yy, tt);
-  } else if (strcmp(emo, "hunger") == 0) {
+  } else if (strcmp(emo, "fome") == 0) {
     hunger(xx, yy, tt);
   } else if (strcmp(emo, "enjoado") == 0) {
     nauseous(xx, yy, tt);
@@ -651,7 +651,7 @@ uint8_t soundForEmotion(const String &emocao, bool variantShort=false) {
   if (emocao == "entediado")    return S_SLEEPING;
   if (emocao == "bravo")        return S_MODE3;
   if (emocao == "apaixonado")   return S_CUDDLY;
-  if (emocao == "hunger")       return S_ANGRY;
+  if (emocao == "fome")       return S_ANGRY;
   if (emocao == "suspeita")     return S_CONNECTION;
   if (emocao == "enjoado")      return S_SURPRISE;
 

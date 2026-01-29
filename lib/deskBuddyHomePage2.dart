@@ -635,9 +635,9 @@ class _DominantEmotionCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Agora", style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w700, fontSize: 12)),
+                //Text("Agora", style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w700, fontSize: 12)),
                 SizedBox(height: 2),
-                Text("Emoção dominante", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                Text("Status", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
               ],
             ),
           ),
@@ -1047,11 +1047,11 @@ String capitalize(String s) {
 IconData _emotionIcon(String? emotion) {
   final e = (emotion ?? '').toLowerCase();
   if (e.contains("feliz") || e.contains("happy")) return Icons.sentiment_very_satisfied_rounded;
-  if (e.contains("trist") || e.contains("sad")) return Icons.sentiment_dissatisfied_rounded;
-  if (e.contains("raiva") || e.contains("angry")) return Icons.sentiment_very_dissatisfied_rounded;
-  if (e.contains("medo") || e.contains("fear")) return Icons.psychology_alt_rounded;
-  if (e.contains("amor") || e.contains("love")) return Icons.favorite_rounded;
+  if (e.contains("triste") || e.contains("sad")) return Icons.sentiment_dissatisfied_rounded;
+  if (e.contains("bravo") || e.contains("angry")) return Icons.sentiment_very_dissatisfied_rounded;
+  if (e.contains("apaixonado") || e.contains("love")) return Icons.favorite_rounded;
   if (e.contains("sono") || e.contains("sleep")) return Icons.bedtime_rounded;
-  if (e.contains("sus") || e.contains("alert")) return Icons.visibility_rounded;
-  return Icons.mood_rounded;
+  if (e.contains("entediado") || e.contains("sleep")) return Icons.sentiment_neutral_rounded;
+  if (e.contains("fome") || e.contains("hunger")) return Icons.restaurant_rounded;
+  return Icons.sentiment_satisfied_rounded;
 }
