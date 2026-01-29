@@ -250,7 +250,7 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
             children: [
               // Status Card
               Container(
-                height: 230,
+                height: 250,
                 width: double.infinity,
                 child: Card(
                   shape: RoundedRectangleBorder(
@@ -266,13 +266,13 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
                         // Imagem de fundo
                         Image.asset(
                           'assets/${bleController.emocoes['dominante']}.gif',
-                          width: 128,
-                          height: 73,
+                          width: 120,
+                          height: 65,
                           fit: BoxFit.cover,
                         ),
                         // Imagem principal do DeskBuddy
                         Image.asset(
-                          'assets/images/DeskBuddy.png',
+                          'assets/images/DeskBuddyBody.png',
                           width: double.infinity,
                           height: double.infinity,
                           fit: BoxFit.contain,
@@ -285,7 +285,7 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
                             style: TextStyle(
                               color: Colors.orange[800],
                               fontWeight: FontWeight.bold,
-                              fontSize: 23,
+                              fontSize: 20,
                               letterSpacing: 1.1,
                             ),
                             overflow: TextOverflow.ellipsis,
@@ -302,7 +302,7 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
                 if (bleController.emocoes.containsKey('dominante'))
                   Card(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                    color: Colors.orange.shade100,
+                    color: Colors.white,
                     elevation: 2,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 18.0, horizontal: 16),
