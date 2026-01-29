@@ -42,7 +42,7 @@ class AppColors {
   static const Color surface2Dark = Color(0xFF202020);
   static const Color surface3Dark = Color(0xFF262626);
 
-  static const Color textDark = Color(0xFFF2F2F2);
+  static const Color textDark = Color(0xFFFF9500);
   static const Color mutedDark = Color(0xFFB8B8B8);
 
   static ColorScheme scheme(Brightness brightness) {
