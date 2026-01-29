@@ -399,25 +399,6 @@ class _BuddyHeroCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                decoration: BoxDecoration(
-                  color: cs.primary.withOpacity(.10),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: cs.primary.withOpacity(.22)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(_emotionIcon(dominante), size: 16, color: cs.primary),
-                    const SizedBox(width: 6),
-                    Text(
-                      capitalize(dominante),
-                      style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 12),
