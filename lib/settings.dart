@@ -1,6 +1,7 @@
 import 'package:deskbuddy/deskBuddyHomePage2.dart';
 import 'package:deskbuddy/login_page.dart';
 import 'package:flutter/material.dart';
+import 'package:deskbuddy/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 🔹 WIDGET que permite reiniciar o app do zero
@@ -25,13 +26,119 @@ class _RestartWidgetState extends State<RestartWidget> {
     });
   }
 
+  
   @override
   Widget build(BuildContext context) {
-    return KeyedSubtree(
-      key: key,
-      child: widget.builder(),
+    final cs = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: AppBar(
+        title: const Text('Configurações'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: AppColors.line),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: cs.primary.withOpacity(.12),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(Icons.settings_rounded, color: cs.primary),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Sessão", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                      SizedBox(height: 2),
+                      Text("Gerencie login e conexão", style: TextStyle(color: AppColors.muted)),
+                    ],
+                  ),
+                )
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: AppColors.line),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "DeskBuddy",
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  "Você pode desconectar deste buddy para trocar de dispositivo ou redefinir os dados de conexão.",
+                  style: TextStyle(color: AppColors.muted),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.logout_rounded, color: Colors.white),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: cs.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                    ),
+                    onPressed: () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text("Desconectar do Buddy"),
+                          content: const Text(
+                            "Tem certeza que deseja sair deste DeskBuddy?"
+                            "Você precisará informar a senha novamente na próxima vez.",
+                          ),
+                          actions: [
+                            TextButton(
+                              child: const Text("Cancelar"),
+                              onPressed: () => Navigator.pop(context, false),
+                            ),
+                            TextButton(
+                              child: const Text("Sair"),
+                              onPressed: () => Navigator.pop(context, true),
+                            ),
+                          ],
+                        ),
+                      );
+
+                      if (confirm == true) {
+                        await Settings()._restartApp(context);
+                      }
+                    },
+                    label: const Text("Desconectar", style: TextStyle(fontWeight: FontWeight.w900)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
+
 }
 
 /// 🔹 APP PRINCIPAL

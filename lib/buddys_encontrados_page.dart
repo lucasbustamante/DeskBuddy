@@ -1,196 +1,305 @@
+import 'package:deskbuddy/app_theme.dart';
 import 'package:flutter/material.dart';
 
 class BuddysEncontradosPage extends StatefulWidget {
   final List<dynamic> encontrados;
 
-  BuddysEncontradosPage({required this.encontrados});
+  const BuddysEncontradosPage({Key? key, required this.encontrados}) : super(key: key);
 
   @override
   _BuddysEncontradosPageState createState() => _BuddysEncontradosPageState();
 }
 
 class _BuddysEncontradosPageState extends State<BuddysEncontradosPage> {
-  String _search = "";
+  final _searchCtrl = TextEditingController();
+
   bool _ordemAlfabetica = true;
   bool _ordemGosta = false;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   List<dynamic> get _filteredList {
     List<dynamic> lista = List<dynamic>.from(widget.encontrados);
 
-    // Filtro por nome
-    if (_search.isNotEmpty) {
-      lista = lista
-          .where((e) => (e['nome'] ?? "")
-          .toString()
-          .toLowerCase()
-          .contains(_search.toLowerCase()))
-          .toList();
+    final q = _searchCtrl.text.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      lista = lista.where((e) => (e['nome'] ?? "").toString().toLowerCase().contains(q)).toList();
     }
 
-    // Ordenação por gosta
     if (_ordemGosta) {
       lista.sort((a, b) {
-        int getGosta(dynamic e) {
-          if (e['gosta'] == true) return 0; // Gosta primeiro
-          if (e['gosta'] == false) return 1; // Não gosta depois
-          return 2; // Indefinido por último
+        int rank(dynamic e) {
+          if (e['gosta'] == true) return 0;
+          if (e['gosta'] == false) return 1;
+          return 2;
         }
 
-        int cmp = getGosta(a).compareTo(getGosta(b));
+        final cmp = rank(a).compareTo(rank(b));
         if (cmp != 0) return cmp;
         return (a['nome'] ?? "").toString().toLowerCase().compareTo((b['nome'] ?? "").toString().toLowerCase());
       });
     } else if (_ordemAlfabetica) {
-      lista.sort((a, b) => (a['nome'] ?? "")
-          .toString()
-          .toLowerCase()
-          .compareTo((b['nome'] ?? "").toString().toLowerCase()));
-    } else {
-      lista = lista.reversed.toList(); // Z-A
+      lista.sort((a, b) =>
+          (a['nome'] ?? "").toString().toLowerCase().compareTo((b['nome'] ?? "").toString().toLowerCase()));
     }
+
     return lista;
   }
 
   @override
   Widget build(BuildContext context) {
-    final bgColor = Color(0xFFFFF7ED);
+    final cs = Theme.of(context).colorScheme;
+    final list = _filteredList;
 
     return Scaffold(
-      backgroundColor: bgColor,
+      backgroundColor: AppColors.bg,
       appBar: AppBar(
-        elevation: 0,
-        title: Text("Buddys Encontrados", style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.orange,
-        iconTheme: IconThemeData(color: Colors.white), // Seta branca
+        title: const Text("Buddys encontrados"),
       ),
       body: Padding(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
         child: Column(
           children: [
-            // Busca + Filtro dentro de Card
-            Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-              color: Colors.orange.shade50,
-              elevation: 3,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        decoration: InputDecoration(
-                          labelText: "Buscar pelo nome",
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                          prefixIcon: Icon(Icons.search, color: Colors.orange),
-                          isDense: true,
-                          contentPadding: EdgeInsets.symmetric(vertical: 0, horizontal: 10),
-                        ),
-                        onChanged: (value) => setState(() => _search = value),
+            // Search
+            TextField(
+              controller: _searchCtrl,
+              onChanged: (_) => setState(() {}),
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: "Buscar pelo nome…",
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _searchCtrl.text.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() {});
+                        },
                       ),
-                    ),
-                    SizedBox(width: 10),
-                    PopupMenuButton<String>(
-                      icon: Icon(Icons.sort, color: Colors.orange),
-                      onSelected: (value) {
-                        setState(() {
-                          if (value == "AZ") {
-                            _ordemAlfabetica = true;
-                            _ordemGosta = false;
-                          } else if (value == "ZA") {
-                            _ordemAlfabetica = false;
-                            _ordemGosta = false;
-                          } else if (value == "GOSTA") {
-                            _ordemGosta = true;
-                          }
-                        });
-                      },
-                      itemBuilder: (context) => [
-                        CheckedPopupMenuItem(
-                          value: "AZ",
-                          checked: _ordemAlfabetica && !_ordemGosta,
-                          child: Text("Ordem alfabética (A-Z)"),
-                        ),
-                        CheckedPopupMenuItem(
-                          value: "ZA",
-                          checked: !_ordemAlfabetica && !_ordemGosta,
-                          child: Text("Ordem alfabética (Z-A)"),
-                        ),
-                        CheckedPopupMenuItem(
-                          value: "GOSTA",
-                          checked: _ordemGosta,
-                          child: Text("Gosta > Não gosta > Indefinido"),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
               ),
             ),
-            SizedBox(height: 20),
-            // Lista em card arredondado e limpo
-            Expanded(
-              child: _filteredList.isEmpty
-                  ? Center(
-                child: Text(
-                  "Nenhum Buddy encontrado.",
-                  style: TextStyle(fontSize: 18),
+            const SizedBox(height: 10),
+
+            // Sorting chips
+            Row(
+              children: [
+                Expanded(
+                  child: _FilterChip(
+                    selected: _ordemAlfabetica && !_ordemGosta,
+                    label: "A–Z",
+                    icon: Icons.sort_by_alpha_rounded,
+                    onTap: () => setState(() {
+                      _ordemAlfabetica = true;
+                      _ordemGosta = false;
+                    }),
+                  ),
                 ),
-              )
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _FilterChip(
+                    selected: _ordemGosta,
+                    label: "Gosta 1º",
+                    icon: Icons.favorite_rounded,
+                    onTap: () => setState(() {
+                      _ordemGosta = true;
+                      _ordemAlfabetica = false;
+                    }),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+            Expanded(
+              child: list.isEmpty
+                  ? Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(color: AppColors.line),
+                        ),
+                        child: const Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.search_off_rounded, size: 48, color: AppColors.muted),
+                            SizedBox(height: 10),
+                            Text("Nenhum buddy encontrado", style: TextStyle(fontWeight: FontWeight.w900)),
+                            SizedBox(height: 6),
+                            Text("Tente ajustar a busca ou volte mais tarde.",
+                                style: TextStyle(color: AppColors.muted), textAlign: TextAlign.center),
+                          ],
+                        ),
+                      ),
+                    )
                   : ListView.separated(
-                itemCount: _filteredList.length,
-                separatorBuilder: (context, idx) => SizedBox(height: 12),
-                itemBuilder: (context, i) {
-                  final encontrado = _filteredList[i];
-                  final nome = encontrado["nome"] ?? ""; // <<--- SÓ O CAMPO NOME DO JSON!
-                  String status;
-                  if (encontrado.containsKey("gosta")) {
-                    if (encontrado["gosta"] == true) {
-                      status = "Gosta 👍";
-                    } else {
-                      status = "Não gosta 👎";
-                    }
-                  } else {
-                    status = "Indefinido ❓";
-                  }
-                  return Card(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                      itemCount: list.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final b = list[index] as Map;
+                        final nome = (b['nome'] ?? "—").toString();
+                        final gosta = b['gosta'];
+                        final afinidade = b['afinidade'];
+                        final estado = (b['estado'] ?? b['emotion'] ?? "").toString();
+
+                        Color badgeBg = AppColors.bg2;
+                        Color badgeFg = AppColors.muted;
+                        IconData badgeIcon = Icons.help_outline_rounded;
+
+                        if (gosta == true) {
+                          badgeBg = cs.primary.withOpacity(.12);
+                          badgeFg = cs.primary;
+                          badgeIcon = Icons.favorite_rounded;
+                        } else if (gosta == false) {
+                          badgeBg = AppColors.bad.withOpacity(.12);
+                          badgeFg = AppColors.bad;
+                          badgeIcon = Icons.heart_broken_rounded;
+                        }
+
+                        return Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(color: AppColors.line),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: cs.primary.withOpacity(.10),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Icon(Icons.person_rounded, color: cs.primary),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(nome, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                                    const SizedBox(height: 4),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        if (estado.trim().isNotEmpty) _SmallChip(label: estado, icon: Icons.mood_rounded),
+                                        if (afinidade != null) _SmallChip(label: "Afinidade: $afinidade", icon: Icons.trending_up_rounded),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: badgeBg,
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(color: badgeFg.withOpacity(.22)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(badgeIcon, size: 16, color: badgeFg),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      gosta == true
+                                          ? "Gosta"
+                                          : gosta == false
+                                              ? "Não gosta"
+                                              : "Indef.",
+                                      style: TextStyle(color: badgeFg, fontWeight: FontWeight.w900, fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
                     ),
-                    elevation: 2,
-                    color: Colors.white,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.orange.shade100,
-                        child: Icon(Icons.face, color: Colors.orange[800]),
-                      ),
-                      title: Text(
-                        nome,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.orange[900],
-                          fontSize: 18,
-                        ),
-                      ),
-                      trailing: Text(
-                        status,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w500,
-                          fontSize: 16,
-                          color: encontrado["gosta"] == true
-                              ? Colors.green
-                              : encontrado["gosta"] == false
-                              ? Colors.red
-                              : Colors.grey,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  final bool selected;
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.selected,
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final bg = selected ? cs.primary.withOpacity(.12) : Colors.white;
+    final fg = selected ? cs.primary : AppColors.text;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: selected ? cs.primary.withOpacity(.30) : AppColors.line),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 18, color: fg),
+            const SizedBox(width: 8),
+            Text(label, style: TextStyle(color: fg, fontWeight: FontWeight.w900)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SmallChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  const _SmallChip({required this.label, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: cs.primary.withOpacity(.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: cs.primary.withOpacity(.20)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: cs.primary),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900, fontSize: 12)),
+        ],
       ),
     );
   }

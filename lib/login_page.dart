@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:deskbuddy/app_theme.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -275,105 +275,227 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   @override
+  
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     final bool buddySelecionado = _nameController.text.isNotEmpty;
 
     return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Center(
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.wb_sunny_rounded, size: 60, color: Colors.orange[800]),
-                const SizedBox(height: 18),
-                const Text(
-                  "Conectar DeskBuddy",
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 22),
+      backgroundColor: AppColors.bg,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(26),
+                        border: Border.all(color: AppColors.line),
+                        boxShadow: const [
+                          BoxShadow(
+                            blurRadius: 30,
+                            offset: Offset(0, 14),
+                            color: Color(0x10000000),
+                          )
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: cs.primary.withOpacity(.12),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Icon(Icons.wb_sunny_rounded, color: cs.primary),
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text("Conectar DeskBuddy", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                                    SizedBox(height: 2),
+                                    Text("Ache seu buddy e entre com a senha", style: TextStyle(color: AppColors.muted)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
 
-                ElevatedButton.icon(
-                  onPressed: _scanning ? null : _buscarBudys,
-                  icon: const Icon(Icons.search),
-                  label: const Text("Buscar Buddys"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    minimumSize: const Size(180, 45),
-                  ),
-                ),
-
-                if (_scanning) ...[
-                  const SizedBox(height: 12),
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 6),
-                  const Text('Buscando Buddys próximos...'),
-                ],
-
-                if (_buddyNames.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          "Selecione seu Buddy:",
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        ..._buddyNames.map(
-                              (nome) => Card(
-                            child: ListTile(
-                              leading: const Icon(Icons.toys, color: Colors.orange),
-                              title: Text(nome),
-                              subtitle: Text(_buddyIds[nome] ?? ""),
-                              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                              onTap: () => _selecionarBuddy(nome),
+                          // Buscar Buddys
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: _scanning ? null : _buscarBudys,
+                              icon: _scanning
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Icon(Icons.search_rounded),
+                              label: Text(_scanning ? "Buscando…" : "Buscar Buddys"),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: cs.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
+                          const SizedBox(height: 12),
 
-                if (buddySelecionado) ...[
-                  const SizedBox(height: 20),
-                  Text(
-                    "Buddy selecionado: ${_nameController.text}",
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _passwordController,
-                    decoration: const InputDecoration(labelText: 'Senha do Buddy'),
-                    obscureText: true,
-                  ),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 10),
-                      child: Text(_error!, style: const TextStyle(color: Colors.red)),
+                          if (_buddyNames.isNotEmpty)
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                "Selecione seu buddy",
+                                style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          if (_buddyNames.isNotEmpty) const SizedBox(height: 8),
+
+                          if (_buddyNames.isNotEmpty)
+                            Container(
+                              decoration: BoxDecoration(
+                                color: AppColors.bg2,
+                                borderRadius: BorderRadius.circular(18),
+                                border: Border.all(color: AppColors.line),
+                              ),
+                              child: Column(
+                                children: _buddyNames.map((name) {
+                                  final selected = _nameController.text == name;
+                                  return InkWell(
+                                    borderRadius: BorderRadius.circular(18),
+                                    onTap: () => setState(() {
+                                      _nameController.text = name;
+                                      _error = null;
+                                    }),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                      decoration: BoxDecoration(
+                                        border: Border(
+                                          bottom: BorderSide(
+                                            color: name == _buddyNames.last ? Colors.transparent : AppColors.line,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                                            color: selected ? cs.primary : AppColors.muted,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              name,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w900,
+                                                color: selected ? AppColors.text : AppColors.text,
+                                              ),
+                                            ),
+                                          ),
+                                          if (_buddyIds.containsKey(name))
+                                            Text(
+                                              _buddyIds[name]!.split(':').last,
+                                              style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+
+                          const SizedBox(height: 14),
+
+                          TextField(
+                            controller: _passwordController,
+                            obscureText: true,
+                            enabled: buddySelecionado,
+                            decoration: InputDecoration(
+                              hintText: "Senha do buddy",
+                              prefixIcon: const Icon(Icons.lock_rounded),
+                            ),
+                          ),
+
+                          if (_error != null) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppColors.bad.withOpacity(.10),
+                                borderRadius: BorderRadius.circular(18),
+                                border: Border.all(color: AppColors.bad.withOpacity(.25)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.error_outline_rounded, color: AppColors.bad),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      _error!,
+                                      style: const TextStyle(color: AppColors.bad, fontWeight: FontWeight.w800),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+
+                          const SizedBox(height: 14),
+
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: (buddySelecionado && !_connecting) ? _login : null,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: cs.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                              ),
+                              child: _connecting
+                                  ? const SizedBox(
+                                      height: 22,
+                                      width: 22,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Text("Conectar", style: TextStyle(fontWeight: FontWeight.w900)),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: (_connecting) ? null : _login,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepOrange,
-                      minimumSize: const Size(160, 50),
+                    const SizedBox(height: 14),
+                    const Text(
+                      "Se não aparecer, aproxime o DeskBuddy e verifique o Bluetooth.",
+                      style: TextStyle(color: AppColors.muted),
+                      textAlign: TextAlign.center,
                     ),
-                    child: _connecting
-                        ? const SizedBox(
-                            height: 22,
-                            width: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text("Conectar"),
-                  ),
-                ],
-              ],
+                  ],
+                ),
+              ),
             ),
           ),
         ),
       ),
     );
   }
+
 }
