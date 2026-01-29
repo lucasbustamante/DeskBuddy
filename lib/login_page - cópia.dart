@@ -60,7 +60,6 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _buscarBudys() async {
-    if (!mounted) return;
     setState(() {
       _scanning = true;
       _error = null;
@@ -180,7 +179,6 @@ class _LoginPageState extends State<LoginPage> {
       }
     }
 
-    if (!mounted) return;
     setState(() {
       _scanning = false;
       _buddyNames = nomes.toList();
@@ -188,7 +186,6 @@ class _LoginPageState extends State<LoginPage> {
       _buddyIds = idsByName;
     });
 
-    if (!mounted) return;
     if (_buddyNames.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Nenhum DeskBuddy encontrado por perto.')),
@@ -221,7 +218,6 @@ class _LoginPageState extends State<LoginPage> {
 
     bool senhaOk = false;
 
-    if (!mounted) return;
     setState(() { _connecting = true; _error = null; });
 
     try {
@@ -271,10 +267,7 @@ class _LoginPageState extends State<LoginPage> {
       await prefs.setString('deskbuddy_nome', name);
       await prefs.setString('deskbuddy_senha', password);
 
-      if (!mounted) return;
-      setState(() { _connecting = false; });
-
-      // ⚠️ Evita navegação com contexto desmontado (erro comum após awaits)
+      if (mounted) setState(() { _connecting = false; });
       widget.onLoginSuccess(context, name, password);
     } else {
       if (mounted) setState(() { _connecting = false; _error = "Senha incorreta para este Buddy."; });

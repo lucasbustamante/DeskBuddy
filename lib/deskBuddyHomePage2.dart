@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_phoenix/flutter_phoenix.dart';
 
 import 'buddys_encontrados_page.dart';
+import 'sensors_page.dart';
 
 class DeskBuddyHomePage2 extends StatefulWidget {
   @override
@@ -120,6 +121,18 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
             ),
           );
         },
+        onOpenSensors: () {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SensorsPage(
+                emocoes: bleController.emocoes,
+                bleStatusText: bleController.status,
+              ),
+            ),
+          );
+        },
         onOpenSettings: () {
           Navigator.pop(context);
           Navigator.push(context, MaterialPageRoute(builder: (_) => const Settings()));
@@ -146,8 +159,6 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
                             delegate: SliverChildListDelegate([
                               _BuddyHeroCard(emocoes: bleController.emocoes),
                               const SizedBox(height: 14),
-                              _QuickStatsRow(emocoes: bleController.emocoes),
-                              const SizedBox(height: 14),
                               _DominantEmotionCard(emocoes: bleController.emocoes),
                               const SizedBox(height: 14),
                               _EmotionDistribution(
@@ -155,21 +166,6 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
                                 parsePercent: _parsePercent,
                               ),
                               const SizedBox(height: 14),
-                              _ToolsCard(
-                                onOpenFound: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => BuddysEncontradosPage(encontrados: getEncontrados()),
-                                    ),
-                                  );
-                                },
-                                onOpenSettings: () {
-                                  Navigator.push(context, MaterialPageRoute(builder: (_) => const Settings()));
-                                },
-                              ),
-                              const SizedBox(height: 14),
-                              _AdvancedCard(emocoes: bleController.emocoes),
                               const SizedBox(height: 90),
                             ]),
                           ),
@@ -188,10 +184,12 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
 
 class _AppDrawer extends StatelessWidget {
   final VoidCallback onOpenFound;
+  final VoidCallback onOpenSensors;
   final VoidCallback onOpenSettings;
 
   const _AppDrawer({
     required this.onOpenFound,
+    required this.onOpenSensors,
     required this.onOpenSettings,
   });
 
@@ -211,7 +209,7 @@ class _AppDrawer extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(22),
                   border: Border.all(color: AppColors.line),
-                  color: AppColors.bg2,
+                  color: AppColors.drawerBg,
                 ),
                 child: Row(
                   children: [
@@ -244,6 +242,11 @@ class _AppDrawer extends StatelessWidget {
                 label: "Buddys encontrados",
                 subtitle: "Veja quem está por perto",
                 onTap: onOpenFound,
+              ),_DrawerTile(
+                icon: Icons.sensors_rounded,
+                label: "Sensores",
+                subtitle: "Status da bateria, LDR, BT e MPU",
+                onTap: onOpenSensors,
               ),
               _DrawerTile(
                 icon: Icons.settings_rounded,
@@ -289,7 +292,7 @@ class _DrawerTile extends StatelessWidget {
         margin: const EdgeInsets.symmetric(vertical: 6),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppColors.drawerCard,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: AppColors.line),
         ),
@@ -409,7 +412,7 @@ class _BuddyHeroCard extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(22),
               child: Container(
-                color: AppColors.bg2,
+                color: AppColors.drawerBg,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
@@ -441,9 +444,17 @@ class _BuddyHeroCard extends StatelessWidget {
             children: [
               _MiniInfo(label: "Parceiro", value: emocoes['parceiro']),
               const SizedBox(width: 10),
-              _MiniInfo(label: "BLE App", value: emocoes['ble_app_conectado']),
+              _MiniInfo(
+                label: "Bateria",
+                value: emocoes['bateria_pct'] != null
+                    ? "${emocoes['bateria_pct']}%"
+                    : (emocoes['bateria_v'] != null ? "${emocoes['bateria_v']} V" : null),
+              ),
               const SizedBox(width: 10),
-              _MiniInfo(label: "Sleeping", value: emocoes['sleeping']),
+              _MiniInfo(
+                label: "Estado",
+                value: _sleepingLabel(emocoes['sleeping']),
+              ),
             ],
           ),
         ],
@@ -464,7 +475,7 @@ class _MiniInfo extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: AppColors.bg2,
+          color: AppColors.drawerBg,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: AppColors.line),
         ),
@@ -476,109 +487,6 @@ class _MiniInfo extends StatelessWidget {
             Text(v, style: const TextStyle(fontWeight: FontWeight.w900)),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _QuickStatsRow extends StatelessWidget {
-  final Map<String, dynamic> emocoes;
-  const _QuickStatsRow({required this.emocoes});
-
-  @override
-  Widget build(BuildContext context) {
-    final batteryPct = emocoes['bateria_pct'];
-    final batteryV = emocoes['bateria_v'];
-    final low = emocoes['bateria_low']?.toString().toLowerCase() == 'true';
-
-    return Row(
-      children: [
-        Expanded(
-          child: _StatCard(
-            icon: Icons.battery_full_rounded,
-            label: "Bateria",
-            value: batteryPct != null ? "${batteryPct}%" : "—",
-            sub: batteryV != null ? "${batteryV} V" : null,
-            tone: low ? _Tone.bad : _Tone.neutral,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _StatCard(
-            icon: Icons.light_mode_rounded,
-            label: "LDR",
-            value: emocoes['ldr_mv'] != null ? "${emocoes['ldr_mv']} mV" : "—",
-            sub: "luminosidade",
-            tone: _Tone.neutral,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-enum _Tone { neutral, warn, bad }
-
-class _StatCard extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final String? sub;
-  final _Tone tone;
-
-  const _StatCard({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.sub,
-    required this.tone,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    Color c = cs.primary;
-    Color bg = cs.primary.withOpacity(.10);
-    if (tone == _Tone.warn) {
-      c = AppColors.warn;
-      bg = AppColors.warn.withOpacity(.12);
-    } else if (tone == _Tone.bad) {
-      c = AppColors.bad;
-      bg = AppColors.bad.withOpacity(.12);
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.line),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(14)),
-            child: Icon(icon, color: c),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: const TextStyle(color: AppColors.muted, fontWeight: FontWeight.w700, fontSize: 12)),
-                const SizedBox(height: 2),
-                Text(value, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                if (sub != null) ...[
-                  const SizedBox(height: 2),
-                  Text(sub!, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
-                ],
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -788,120 +696,6 @@ class _EmotionBar extends StatelessWidget {
   }
 }
 
-class _ToolsCard extends StatelessWidget {
-  final VoidCallback onOpenFound;
-  final VoidCallback onOpenSettings;
-
-  const _ToolsCard({
-    required this.onOpenFound,
-    required this.onOpenSettings,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.line),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: cs.primary.withOpacity(.12),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(Icons.auto_awesome_rounded, color: cs.primary, size: 20),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Text("Ações rápidas", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: onOpenFound,
-                  icon: const Icon(Icons.search_rounded),
-                  label: const Text("Encontrados"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: cs.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: onOpenSettings,
-                  icon: const Icon(Icons.settings_rounded),
-                  label: const Text("Config"),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: cs.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                    side: BorderSide(color: cs.primary.withOpacity(.35)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AdvancedCard extends StatelessWidget {
-  final Map<String, dynamic> emocoes;
-  const _AdvancedCard({required this.emocoes});
-
-  @override
-  Widget build(BuildContext context) {
-    return ExpansionTile(
-      tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-      collapsedBackgroundColor: Colors.white,
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22), side: const BorderSide(color: AppColors.line)),
-      collapsedShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22), side: const BorderSide(color: AppColors.line)),
-      title: const Text("Avançado", style: TextStyle(fontWeight: FontWeight.w900)),
-      subtitle: const Text("Debug e JSON completo", style: TextStyle(color: AppColors.muted)),
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.bg2,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.line),
-            ),
-            child: Text(
-              const JsonEncoder.withIndent("  ").convert(emocoes),
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _LoadingState extends StatelessWidget {
   final String status;
   const _LoadingState({required this.status});
@@ -1018,6 +812,16 @@ class _RetryState extends StatelessWidget {
     );
   }
 }
+String _sleepingLabel(dynamic sleeping) {
+  if (sleeping == true || sleeping == 1 || sleeping == "true") {
+    return "Dormindo";
+  }
+  if (sleeping == false || sleeping == 0 || sleeping == "false") {
+    return "Acordado";
+  }
+  return "—";
+}
+
 
 // Helpers
 String capitalize(String s) {

@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
 /// Paleta principal (off-white + laranja) e tema Material 3.
-import 'package:flutter/material.dart';
-
 class AppColors {
   // Marca
   static const Color orange = Color(0xFFFF7A02);
@@ -16,6 +14,11 @@ class AppColors {
   static const Color surface = Color(0xFFFFFFFF); // cards/dialogs
   static const Color surface2 = Color(0xFFFFFBF5); // sections
   static const Color surface3 = Color(0xFFFFF3E3); // highlights suaves
+
+  // AppBar / Drawer (customizáveis)
+  static const Color appBarBg = bg; // fundo da AppBar
+  static const Color drawerBg = bg2; // fundo do menu lateral
+  static const Color drawerCard = surface; // cards dentro do drawer
 
   // Texto (Light)
   static const Color text = Color(0xFF1B1B1B);
@@ -97,8 +100,8 @@ class AppTheme {
       useMaterial3: true,
       colorScheme: cs,
       scaffoldBackgroundColor: AppColors.bg,
-      appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.bg,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: AppColors.appBarBg,
         foregroundColor: AppColors.text,
         elevation: 0,
         centerTitle: false,
@@ -122,6 +125,10 @@ class AppTheme {
       snackBarTheme: SnackBarThemeData(
         backgroundColor: cs.inverseSurface,
         contentTextStyle: TextStyle(color: cs.onInverseSurface),
+      ),
+      drawerTheme: const DrawerThemeData(
+        backgroundColor: AppColors.drawerBg,
+        surfaceTintColor: Colors.transparent,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
