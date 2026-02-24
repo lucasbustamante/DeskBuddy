@@ -305,6 +305,9 @@ class _JsonDebugCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final sanitized = Map<String, dynamic>.from(emocoes);
+    if (sanitized.containsKey('senha')) sanitized['senha'] = '••••';
+
     final cs = Theme.of(context).colorScheme;
     return ExpansionTile(
       tilePadding: const EdgeInsets.symmetric(horizontal: 14),
@@ -335,7 +338,7 @@ class _JsonDebugCard extends StatelessWidget {
               border: Border.all(color: AppColors.line),
             ),
             child: Text(
-              const JsonEncoder.withIndent("  ").convert(emocoes),
+              const JsonEncoder.withIndent("  ").convert(sanitized),
               style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
             ),
           ),

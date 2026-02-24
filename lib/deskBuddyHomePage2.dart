@@ -572,6 +572,7 @@ class _EmotionDistribution extends StatelessWidget {
       'dominante',
       'encontrados',
       'nome',
+      'senha',
       'parceiro',
       'bateria_pct',
       'bateria_v',
