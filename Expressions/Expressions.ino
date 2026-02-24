@@ -79,10 +79,12 @@ namespace CFG {
   static constexpr unsigned long LDR_DARK_DEBOUNCE_MS = 2500; // precisa ficar escuro por X ms
 
   // Sequência de "dormir":
-  // 1) toca som + animação (placeholder: apaixonado)
-  // 2) depois apaga a tela (DISPLAYOFF) e para sons
-  static constexpr unsigned long SLEEP_PREP_ANIM_MS = 2500;   // quanto tempo mostra o "dormindo"
-  static constexpr unsigned long SLEEP_PREP_SOUND_MS = 900;   // quanto tempo deixa o som tocar (depois silencia)
+  // 1) mostra a expressão "dormindo" e toca o som por alguns ciclos
+  // 2) depois apaga a tela (DISPLAYOFF)
+  // 3) quando a luz volta, liga a tela ainda dormindo por alguns ciclos e só então "acorda" de vez
+  // OBS: "ciclo" aqui é a leitura do LDR (CFG::LDR_READ_EVERY_MS).
+  static constexpr uint8_t SLEEP_HOLD_CYCLES = 10;            // ✅ AJUSTE AQUI: ciclos segurando dormindo (ao dormir e ao acordar)
+  static constexpr unsigned long SLEEP_SOUND_LOOP_MS = 6000;  // intervalo mínimo para repetir o som de dormir durante o hold
 
   // -------- EEPROM --------
   static constexpr int EEPROM_SIZE = 1024;
@@ -245,7 +247,7 @@ static const unsigned long AUTO_SOUND_MIN_GAP_MS    = (unsigned long)CFG::DECAY_
 // ======================================================
 //  ✅ GLDR (LDR) - Estado de "Dormir"
 // ======================================================
-enum SleepState : uint8_t { AWAKE = 0, SLEEP_PREP = 1, SLEEPING = 2 };
+enum SleepState : uint8_t { AWAKE = 0, SLEEP_HOLD = 1, SLEEPING = 2, WAKE_HOLD = 3 };
 static volatile bool g_displaySleeping = false;  // usado também pela uiTask
 static SleepState g_sleepState = AWAKE;
 static unsigned long g_lastLdrReadMs = 0;
@@ -253,6 +255,9 @@ static int g_ldrMv = 0;
 static unsigned long g_darkSinceMs = 0;
 static unsigned long g_sleepPrepStartMs = 0;
 static unsigned long g_sleepSoundStopMs = 0;
+static int g_sleepHoldCyclesLeft = 0;
+static int g_wakeHoldCyclesLeft  = 0;
+static unsigned long g_lastSleepLoopSoundMs = 0;
 
 // ======================================================
 //  OBJETOS
@@ -349,6 +354,21 @@ static void displaySetSleeping(bool sleeping) {
 static void stopAllSoundsNow() {
   portENTER_CRITICAL(&buzzerMux);
   buzzer.stop(); // BuzzerScheduler tem stop() (se a sua versão não tiver, me fala que eu ajusto)
+  portEXIT_CRITICAL(&buzzerMux);
+}
+
+static void ensureSleepSoundLoop() {
+  if (g_displaySleeping) return;
+  const unsigned long now = millis();
+  if (buzzer.isPlaying()) return;
+  if (now - g_lastSleepLoopSoundMs < CFG::SLEEP_SOUND_LOOP_MS) return;
+
+  portENTER_CRITICAL(&buzzerMux);
+  // força o som de dormir sem depender das janelas/cooldowns normais
+  buzzer.playSound(S_SLEEPY2);
+  lastAnySoundMs = now;
+  lastDisplaySoundMs = now;
+  g_lastSleepLoopSoundMs = now;
   portEXIT_CRITICAL(&buzzerMux);
 }
 
@@ -655,7 +675,7 @@ String getHumorJSON() {
   json += "\"apaixonado\":" + String(pctApaixonado) + ",";
   json += "\"dominante\":\"" + getDominantEmotion() + "\",";
   json += "\"nome\":\"" + String(CFG::NAME) + "\",";
-  //json += "\"senha\":\"" + String(CFG::SENHA) + "\",";
+  json += "\"senha\":\"" + String(CFG::SENHA) + "\",";
   json += "\"bateria_pct\":" + String(g_batteryPercent) + ",";
   json += "\"bateria_v\":" + String(g_batteryVoltage, 3) + ",";
   json += "\"bateria_low\":" + String(g_lowBattery ? "true" : "false") + ",";
@@ -748,7 +768,6 @@ uint8_t soundForEmotion(const String &emocao, bool variantShort=false) {
   if (emocao == "fome")       return S_ANGRY;
   if (emocao == "suspeita")     return S_CONNECTION;
   if (emocao == "enjoado")      return S_SURPRISE;
-  if (emocao == "dormindo")      return S_SLEEPING;
 
   return S_CONNECTION;
 }
@@ -1296,58 +1315,83 @@ static void updateLdrSleepIfNeeded() {
     if (isDark) {
       if (g_darkSinceMs == 0) g_darkSinceMs = now;
       if (now - g_darkSinceMs >= CFG::LDR_DARK_DEBOUNCE_MS) {
-        // entra no preparo do dormir
-        g_sleepState = SLEEP_PREP;
+        // entra no "hold" do dormir (segura a expressão e o som por alguns ciclos)
+        g_sleepState = SLEEP_HOLD;
+        g_sleepHoldCyclesLeft = CFG::SLEEP_HOLD_CYCLES;
         g_sleepPrepStartMs = now;
-        g_sleepSoundStopMs = now + CFG::SLEEP_PREP_SOUND_MS;
+        g_lastSleepLoopSoundMs = 0;
 
         // garante tela ligada para mostrar a “animação de dormir”
         if (g_displaySleeping) displaySetSleeping(false);
 
-        // placeholder: usar apaixonado como “dormindo”
-        requestOverrideEmotion("dormindo", true, true);
+        // mantém "dormindo" enquanto segura os ciclos
+        requestOverrideEmotion("dormindo", false, true);
+        ensureSleepSoundLoop();
         Serial.print("[SLEEP] Escuro detectado (mV=");
         Serial.print(g_ldrMv);
-        Serial.println(") -> SLEEP_PREP (mostra + som, depois apaga tela)");
+        Serial.println(") -> SLEEP_HOLD (mostra + som por ciclos, depois apaga tela)");
       }
     } else {
       g_darkSinceMs = 0;
     }
   }
-  else if (g_sleepState == SLEEP_PREP) {
-    // Se clareou durante o preparo, cancela e volta
+  else if (g_sleepState == SLEEP_HOLD) {
+    // Se clareou durante o hold, cancela e volta
     if (isBrightEnoughToWake) {
       g_sleepState = AWAKE;
       g_darkSinceMs = 0;
-      Serial.println("[SLEEP] Clareou durante SLEEP_PREP -> volta AWAKE.");
+      stopAllSoundsNow();
+      Serial.println("[SLEEP] Clareou durante SLEEP_HOLD -> volta AWAKE.");
       showEmoteOnDisplay();
       return;
     }
 
-    // para o som depois de um tempo (mesmo antes de apagar a tela)
-    if (!g_displaySleeping && now >= g_sleepSoundStopMs) {
-      stopAllSoundsNow();
-    }
+    // mantém expressão + som enquanto segura ciclos
+    requestOverrideEmotion("dormindo", false, true);
+    ensureSleepSoundLoop();
 
-    // depois do tempo de animação, apaga tela e entra “SLEEPING”
-    if (now - g_sleepPrepStartMs >= CFG::SLEEP_PREP_ANIM_MS) {
+    if (g_sleepHoldCyclesLeft > 0) g_sleepHoldCyclesLeft--;
+    if (g_sleepHoldCyclesLeft <= 0) {
       stopAllSoundsNow();
       displaySetSleeping(true);
       g_sleepState = SLEEPING;
       Serial.println("[SLEEP] Tela OFF. (BLE continua, resto continua)");
     }
   }
-  else { // SLEEPING
-    // Se voltou a luz, acorda
+  else if (g_sleepState == SLEEPING) {
+    // Se voltou a luz, liga a tela mas mantém dormindo por alguns ciclos
     if (isBrightEnoughToWake) {
       displaySetSleeping(false);
-      g_sleepState = AWAKE;
+      g_sleepState = WAKE_HOLD;
+      g_wakeHoldCyclesLeft = CFG::SLEEP_HOLD_CYCLES;
       g_darkSinceMs = 0;
-      Serial.println("[SLEEP] Acordou (luz voltou) -> Tela ON.");
-      showEmoteOnDisplay();
+      g_lastSleepLoopSoundMs = 0;
+      Serial.println("[SLEEP] Luz voltou -> WAKE_HOLD (tela ON dormindo, depois acorda de vez)");
+      requestOverrideEmotion("dormindo", false, true);
+      ensureSleepSoundLoop();
     } else {
       // garante silêncio total dormindo
       stopAllSoundsNow();
+    }
+  }
+  else { // WAKE_HOLD
+    // Se escureceu de novo durante o wake hold, volta pro fluxo de dormir
+    if (isDark) {
+      if (g_darkSinceMs == 0) g_darkSinceMs = now;
+    } else {
+      g_darkSinceMs = 0;
+    }
+
+    // mantém expressão + som enquanto segura ciclos
+    requestOverrideEmotion("dormindo", false, true);
+    ensureSleepSoundLoop();
+
+    if (g_wakeHoldCyclesLeft > 0) g_wakeHoldCyclesLeft--;
+    if (g_wakeHoldCyclesLeft <= 0) {
+      stopAllSoundsNow();
+      g_sleepState = AWAKE;
+      Serial.println("[SLEEP] WAKE_HOLD acabou -> AWAKE (mostra emoção atual)");
+      showEmoteOnDisplay();
     }
   }
 }

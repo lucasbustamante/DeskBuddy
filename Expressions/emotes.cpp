@@ -1022,6 +1022,16 @@ void zzz(int xx, int yy, int tt){
   smartDelay(tt);
 
     display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes216, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+    display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes217, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+      display.clearDisplay();
   display.drawBitmap(xx, yy, emotes217, 128, 64, 1);
   display.display();
   smartDelay(tt);
@@ -1031,13 +1041,33 @@ void zzz(int xx, int yy, int tt){
   display.display();
   smartDelay(tt);
 
+      display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes218, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
     display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes219, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+      display.clearDisplay();
   display.drawBitmap(xx, yy, emotes219, 128, 64, 1);
   display.display();
   smartDelay(tt);
 
     display.clearDisplay();
   display.drawBitmap(xx, yy, emotes220, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+      display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes220, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+    display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes221, 128, 64, 1);
   display.display();
   smartDelay(tt);
 
@@ -1051,6 +1081,16 @@ void zzz(int xx, int yy, int tt){
   display.display();
   smartDelay(tt);
 
+      display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes222, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+
+    display.clearDisplay();
+  display.drawBitmap(xx, yy, emotes223, 128, 64, 1);
+  display.display();
+  smartDelay(tt);
+  
     display.clearDisplay();
   display.drawBitmap(xx, yy, emotes223, 128, 64, 1);
   display.display();
