@@ -42,4 +42,6 @@ void bored(int xx, int yy, int tt);
 
 void nauseous(int xx, int yy, int tt);
 
+void zzz(int xx, int yy, int tt);
+
 #endif

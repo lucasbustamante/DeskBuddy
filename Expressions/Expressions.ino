@@ -20,6 +20,7 @@
 #include "BuzzerScheduler.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <math.h>
 
 // ======================================================
 //  ✅ CONFIG CENTRAL (AJUSTE TUDO AQUI)
@@ -55,6 +56,17 @@ namespace CFG {
   static constexpr int   BAT_LOW_PERCENT = 15;
   static constexpr unsigned long BAT_READ_EVERY_MS = 5000;
 
+  // -------- Bateria: filtro / decisão (anti-falso-positivo) --------
+  // Faz leitura com múltiplas amostras (mediana) + filtro EMA, e só marca LOW
+  // depois de alguns ciclos consecutivos abaixo do limite (com histerese).
+  static constexpr int   BAT_SAMPLE_COUNT = 7;            // nº de amostras por leitura (mediana)
+  static constexpr float BAT_EMA_ALPHA = 0.25f;           // 0..1 (maior = responde mais rápido)
+  static constexpr float BAT_GLITCH_JUMP_V = 0.35f;       // ignora salto brusco de tensão (provável ruído)
+  static constexpr int   BAT_LOW_STREAK_CYCLES = 3;       // ciclos consecutivos p/ entrar em LOW
+  static constexpr int   BAT_OK_STREAK_CYCLES  = 2;       // ciclos consecutivos p/ sair de LOW
+  static constexpr int   BAT_HYSTERESIS_PERCENT = 5;      // margem p/ sair do LOW (evita ficar oscilando)
+
+
   // ======================================================
   //  ✅ GLDR (LDR) - Luminosidade / "Dormir"
   //  Ligação: LDR -> 3V3, resistor -> GND, meio -> GPIO8 (ADC)
@@ -69,7 +81,7 @@ namespace CFG {
   // Sequência de "dormir":
   // 1) toca som + animação (placeholder: apaixonado)
   // 2) depois apaga a tela (DISPLAYOFF) e para sons
-  static constexpr unsigned long SLEEP_PREP_ANIM_MS = 2500;   // quanto tempo mostra o "dormindo" (apaixonado)
+  static constexpr unsigned long SLEEP_PREP_ANIM_MS = 2500;   // quanto tempo mostra o "dormindo"
   static constexpr unsigned long SLEEP_PREP_SOUND_MS = 900;   // quanto tempo deixa o som tocar (depois silencia)
 
   // -------- EEPROM --------
@@ -290,6 +302,11 @@ static int g_batteryPercent = 100;
 static float g_batteryVoltage = 0.0f;
 static bool g_lowBattery = false;
 static unsigned long lastBatteryReadMs = 0;
+static float g_batteryVoltageFiltered = 0.0f;
+static int   g_batteryPercentFiltered = 100;
+static float g_lastBatteryRawV = 0.0f;
+static int   g_batLowStreak = 0;
+static int   g_batOkStreak  = 0;
 
 // ======================================================
 //  MPU9250: estado
@@ -345,6 +362,29 @@ static float readBatteryVoltage() {
   return v_bat;
 }
 
+// Leitura mais robusta: várias amostras + mediana (reduz ruído/spikes do ADC)
+static float readBatteryVoltageRobust() {
+  float samples[CFG::BAT_SAMPLE_COUNT];
+  for (int i = 0; i < CFG::BAT_SAMPLE_COUNT; i++) {
+    uint32_t mv = analogReadMilliVolts(CFG::BAT_ADC_PIN);
+    float v_adc = mv / 1000.0f;
+    samples[i] = v_adc * (CFG::BAT_R_TOP + CFG::BAT_R_BOTTOM) / CFG::BAT_R_BOTTOM;
+    delay(3); // pequeno espaçamento entre amostras
+  }
+  // ordena e pega mediana
+  for (int i = 0; i < CFG::BAT_SAMPLE_COUNT - 1; i++) {
+    for (int j = i + 1; j < CFG::BAT_SAMPLE_COUNT; j++) {
+      if (samples[j] < samples[i]) {
+        float tmp = samples[i];
+        samples[i] = samples[j];
+        samples[j] = tmp;
+      }
+    }
+  }
+  return samples[CFG::BAT_SAMPLE_COUNT / 2];
+}
+
+
 static int batteryPercentFromVoltage(float vbat) {
   float p = (vbat - CFG::BAT_EMPTY_V) / (CFG::BAT_FULL_V - CFG::BAT_EMPTY_V) * 100.0f;
   if (p < 0) p = 0;
@@ -357,16 +397,68 @@ static void updateBatteryIfNeeded() {
   if (now - lastBatteryReadMs < CFG::BAT_READ_EVERY_MS) return;
   lastBatteryReadMs = now;
 
-  g_batteryVoltage = readBatteryVoltage();
+  // 1) Leitura robusta (mediana de N amostras)
+  float rawV = readBatteryVoltageRobust();
+
+  // 2) Rejeita glitch (salto brusco improvável entre leituras)
+  if (g_lastBatteryRawV > 0.5f) {
+    float jump = fabs(rawV - g_lastBatteryRawV);
+    if (jump >= CFG::BAT_GLITCH_JUMP_V) {
+      Serial.print("[BATERIA] Ignorou glitch (jump=");
+      Serial.print(jump, 2);
+      Serial.println("V)");
+      return; // mantém estado anterior
+    }
+  }
+  g_lastBatteryRawV = rawV;
+
+  // 3) Filtro EMA (suaviza variações rápidas)
+  if (g_batteryVoltageFiltered <= 0.1f) {
+    g_batteryVoltageFiltered = rawV; // primeira leitura
+  } else {
+    g_batteryVoltageFiltered = (CFG::BAT_EMA_ALPHA * rawV) + ((1.0f - CFG::BAT_EMA_ALPHA) * g_batteryVoltageFiltered);
+  }
+
+  // Mantém compatibilidade: publica tensão 'filtrada' como a oficial
+  g_batteryVoltage = g_batteryVoltageFiltered;
   g_batteryPercent = batteryPercentFromVoltage(g_batteryVoltage);
+  g_batteryPercentFiltered = g_batteryPercent;
 
+  // 4) Decisão LOW com 'streak' + histerese (evita falso positivo e oscilação)
   bool wasLow = g_lowBattery;
-  g_lowBattery = (g_batteryPercent < CFG::BAT_LOW_PERCENT);
 
-  Serial.print("[BATERIA] V=");
+  const int lowTh = CFG::BAT_LOW_PERCENT;
+  const int okTh  = CFG::BAT_LOW_PERCENT + CFG::BAT_HYSTERESIS_PERCENT;
+
+  if (g_batteryPercentFiltered < lowTh) {
+    g_batLowStreak++;
+    g_batOkStreak = 0;
+  } else if (g_batteryPercentFiltered > okTh) {
+    g_batOkStreak++;
+    g_batLowStreak = 0;
+  } else {
+    // zona neutra: não conta nada (mantém estado), mas evita crescer streak errado
+    g_batLowStreak = 0;
+    g_batOkStreak  = 0;
+  }
+
+  if (!g_lowBattery && g_batLowStreak >= CFG::BAT_LOW_STREAK_CYCLES) {
+    g_lowBattery = true;
+  }
+  if (g_lowBattery && g_batOkStreak >= CFG::BAT_OK_STREAK_CYCLES) {
+    g_lowBattery = false;
+  }
+
+  Serial.print("[BATERIA] raw=");
+  Serial.print(rawV, 2);
+  Serial.print("V  filt=");
   Serial.print(g_batteryVoltage, 2);
   Serial.print("V  %=");
-  Serial.print(g_batteryPercent);
+  Serial.print(g_batteryPercentFiltered);
+  Serial.print("  streakL=");
+  Serial.print(g_batLowStreak);
+  Serial.print(" streakOK=");
+  Serial.print(g_batOkStreak);
   Serial.println(g_lowBattery ? "  (LOW -> FOME)" : "");
 
   if (!wasLow && g_lowBattery) {
@@ -563,7 +655,7 @@ String getHumorJSON() {
   json += "\"apaixonado\":" + String(pctApaixonado) + ",";
   json += "\"dominante\":\"" + getDominantEmotion() + "\",";
   json += "\"nome\":\"" + String(CFG::NAME) + "\",";
-  json += "\"senha\":\"" + String(CFG::SENHA) + "\",";
+  //json += "\"senha\":\"" + String(CFG::SENHA) + "\",";
   json += "\"bateria_pct\":" + String(g_batteryPercent) + ",";
   json += "\"bateria_v\":" + String(g_batteryVoltage, 3) + ",";
   json += "\"bateria_low\":" + String(g_lowBattery ? "true" : "false") + ",";
@@ -637,6 +729,8 @@ static void runEmotionAnimation(const char *emo, int xx=0, int yy=0, int tt=75) 
     hunger(xx, yy, tt);
   } else if (strcmp(emo, "enjoado") == 0) {
     nauseous(xx, yy, tt);
+  } else if (strcmp(emo, "dormindo") == 0) {
+    zzz(xx, yy, tt);
   } else {
     normal(xx, yy, tt);
   }
@@ -654,6 +748,7 @@ uint8_t soundForEmotion(const String &emocao, bool variantShort=false) {
   if (emocao == "fome")       return S_ANGRY;
   if (emocao == "suspeita")     return S_CONNECTION;
   if (emocao == "enjoado")      return S_SURPRISE;
+  if (emocao == "dormindo")      return S_SLEEPING;
 
   return S_CONNECTION;
 }
@@ -1210,7 +1305,7 @@ static void updateLdrSleepIfNeeded() {
         if (g_displaySleeping) displaySetSleeping(false);
 
         // placeholder: usar apaixonado como “dormindo”
-        requestOverrideEmotion("apaixonado", true, true);
+        requestOverrideEmotion("dormindo", true, true);
         Serial.print("[SLEEP] Escuro detectado (mV=");
         Serial.print(g_ldrMv);
         Serial.println(") -> SLEEP_PREP (mostra + som, depois apaga tela)");
@@ -1375,7 +1470,7 @@ void setup() {
 
   Serial.println("Digite: FELIZ/TRISTE/ENTEDIADO/BRAVO/NORMAL/APAIXONADO ou AUTO.");
   Serial.println("MPU: caminhando => carinho. Agitar forte => enjoado.");
-  Serial.println("LDR (GPIO8): escuro -> 'dormir' (placeholder apaixonado) -> tela OFF (BLE continua).");
+  Serial.println("LDR (GPIO8): escuro -> 'dormir' (dormindo) -> tela OFF (BLE continua).");
 }
 
 void loop() {
