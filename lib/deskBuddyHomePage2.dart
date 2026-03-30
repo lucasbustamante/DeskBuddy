@@ -1,7 +1,13 @@
+// deskBuddyHomePage2.dart
+// CORREÇÃO OTA [FIX-UI-1]: passa callbacks onPausePolling/onResumePolling
+// para a FirmwareUpdatePage, garantindo que o polling BLE seja suspenso
+// durante a transmissão OTA e retomado após o término.
+
 import 'dart:convert';
 
 import 'package:deskbuddy/app_theme.dart';
 import 'package:deskbuddy/bleController.dart';
+import 'package:deskbuddy/firmware_update_page.dart';
 import 'package:deskbuddy/settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_phoenix/flutter_phoenix.dart';
@@ -18,7 +24,7 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
   final BleController bleController = BleController();
 
   bool _showRetry = false;
-  int _reloadCount = 0;
+  int  _reloadCount = 0;
 
   static const Duration timeout = Duration(seconds: 10);
 
@@ -31,9 +37,7 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
 
   void _startScan() {
     setState(() => _showRetry = false);
-
     bleController.startAutoUpdate(updateState);
-
     Future.delayed(timeout, () {
       if (mounted && bleController.emocoes.isEmpty) {
         setState(() => _showRetry = true);
@@ -43,12 +47,10 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
 
   Future<void> _reload() async {
     setState(() => _reloadCount++);
-
     if (_reloadCount >= 3) {
       setState(() => _showRetry = true);
       return;
     }
-
     bleController.stopAutoUpdate();
     bleController.emocoes.clear();
     _startScan();
@@ -66,7 +68,7 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
   }
 
   double _parsePercent(dynamic value) {
-    if (value is int) return value.toDouble();
+    if (value is int)    return value.toDouble();
     if (value is double) return value;
     if (value is String) return double.tryParse(value) ?? 0;
     return 0;
@@ -79,10 +81,28 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
   }
 
   bool get isLoading {
-    final status = (bleController.status).toLowerCase();
-    return status.contains("conect") ||
-        status.contains("buscando") ||
-        bleController.emocoes.isEmpty;
+    final status = bleController.status.toLowerCase();
+    return status.contains('conect') ||
+           status.contains('buscando') ||
+           bleController.emocoes.isEmpty;
+  }
+
+  // [FIX-UI-1] Abre FirmwareUpdatePage com callbacks de pause/resume
+  void _openFirmwareUpdate() {
+    Navigator.pop(context);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FirmwareUpdatePage(
+          device:         bleController.connectedDevice,
+          currentVersion: bleController.firmwareVersion,
+          // Pausa o polling durante OTA para evitar conflito BLE
+          onPausePolling:  bleController.pausePolling,
+          // Retoma após OTA (sucesso ou cancelamento)
+          onResumePolling: bleController.resumePolling,
+        ),
+      ),
+    );
   }
 
   @override
@@ -105,7 +125,7 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
               child: Icon(Icons.wb_sunny_rounded, color: cs.primary),
             ),
             const SizedBox(width: 10),
-            const Text("DeskBuddy"),
+            const Text('DeskBuddy'),
             const Spacer(),
             _StatusPill(text: bleController.status),
           ],
@@ -114,36 +134,31 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
       drawer: _AppDrawer(
         onOpenFound: () {
           Navigator.pop(context);
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => BuddysEncontradosPage(encontrados: getEncontrados()),
-            ),
-          );
+          Navigator.push(context, MaterialPageRoute(
+            builder: (context) => BuddysEncontradosPage(encontrados: getEncontrados()),
+          ));
         },
         onOpenSensors: () {
           Navigator.pop(context);
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => SensorsPage(
-                emocoes: bleController.emocoes,
-                bleStatusText: bleController.status,
-              ),
+          Navigator.push(context, MaterialPageRoute(
+            builder: (_) => SensorsPage(
+              emocoes: bleController.emocoes,
+              bleStatusText: bleController.status,
             ),
-          );
+          ));
         },
         onOpenSettings: () {
           Navigator.pop(context);
           Navigator.push(context, MaterialPageRoute(builder: (_) => const Settings()));
         },
+        onOpenFirmwareUpdate: _openFirmwareUpdate,
       ),
       body: SafeArea(
         child: (_showRetry && bleController.emocoes.isEmpty)
             ? _RetryState(
                 reloadCount: _reloadCount,
-                onRetry: _reloadCount < 3 ? _reload : null,
-                onRestart: () => Phoenix.rebirth(context),
+                onRetry:    _reloadCount < 3 ? _reload : null,
+                onRestart:  () => Phoenix.rebirth(context),
               )
             : isLoading
                 ? _LoadingState(status: bleController.status)
@@ -165,7 +180,6 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
                                 emocoes: bleController.emocoes,
                                 parsePercent: _parsePercent,
                               ),
-                              const SizedBox(height: 14),
                               const SizedBox(height: 90),
                             ]),
                           ),
@@ -178,19 +192,19 @@ class _DeskBuddyHomePageState2 extends State<DeskBuddyHomePage2> {
   }
 }
 
-// -----------------------------------------------------------------------------
-// UI Widgets
-// -----------------------------------------------------------------------------
+// ── Drawer ────────────────────────────────────────────────────────────────────
 
 class _AppDrawer extends StatelessWidget {
   final VoidCallback onOpenFound;
   final VoidCallback onOpenSensors;
   final VoidCallback onOpenSettings;
+  final VoidCallback onOpenFirmwareUpdate;
 
   const _AppDrawer({
     required this.onOpenFound,
     required this.onOpenSensors,
     required this.onOpenSettings,
+    required this.onOpenFirmwareUpdate,
   });
 
   @override
@@ -214,8 +228,7 @@ class _AppDrawer extends StatelessWidget {
                 child: Row(
                   children: [
                     Container(
-                      width: 42,
-                      height: 42,
+                      width: 42, height: 42,
                       decoration: BoxDecoration(
                         color: cs.primary.withOpacity(.14),
                         borderRadius: BorderRadius.circular(14),
@@ -227,9 +240,9 @@ class _AppDrawer extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text("Menu", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                          Text('Menu', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                           SizedBox(height: 2),
-                          Text("Ações e configurações", style: TextStyle(color: AppColors.muted)),
+                          Text('Ações e configurações', style: TextStyle(color: AppColors.muted)),
                         ],
                       ),
                     ),
@@ -237,26 +250,13 @@ class _AppDrawer extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              _DrawerTile(
-                icon: Icons.search_rounded,
-                label: "Buddys encontrados",
-                subtitle: "Veja quem está por perto",
-                onTap: onOpenFound,
-              ),_DrawerTile(
-                icon: Icons.sensors_rounded,
-                label: "Sensores",
-                subtitle: "Status da bateria, LDR, BT e MPU",
-                onTap: onOpenSensors,
-              ),
-              _DrawerTile(
-                icon: Icons.settings_rounded,
-                label: "Configurações",
-                subtitle: "Conta, sessão e preferências",
-                onTap: onOpenSettings,
-              ),
+              _DrawerTile(icon: Icons.search_rounded,        label: 'Buddys encontrados',      subtitle: 'Veja quem está por perto',          onTap: onOpenFound),
+              _DrawerTile(icon: Icons.sensors_rounded,       label: 'Sensores',                subtitle: 'Status da bateria, LDR, BT e MPU', onTap: onOpenSensors),
+              _DrawerTile(icon: Icons.system_update_rounded, label: 'Atualização de firmware', subtitle: 'Instalar nova versão via BLE',      onTap: onOpenFirmwareUpdate),
+              _DrawerTile(icon: Icons.settings_rounded,      label: 'Configurações',           subtitle: 'Conta, sessão e preferências',     onTap: onOpenSettings),
               const Spacer(),
               const Text(
-                "Dica: puxe pra baixo para atualizar as emoções.",
+                'Dica: puxe pra baixo para atualizar as emoções.',
                 style: TextStyle(color: AppColors.muted),
                 textAlign: TextAlign.center,
               ),
@@ -299,8 +299,7 @@ class _DrawerTile extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              width: 40,
-              height: 40,
+              width: 40, height: 40,
               decoration: BoxDecoration(
                 color: cs.primary.withOpacity(.12),
                 borderRadius: BorderRadius.circular(14),
@@ -326,6 +325,8 @@ class _DrawerTile extends StatelessWidget {
   }
 }
 
+// ── Status pill ───────────────────────────────────────────────────────────────
+
 class _StatusPill extends StatelessWidget {
   final String text;
   const _StatusPill({required this.text});
@@ -333,16 +334,16 @@ class _StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final t = text.trim().isEmpty ? "Pronto" : text;
+    final t = text.trim().isEmpty ? 'Pronto' : text;
 
     Color bg = cs.primary.withOpacity(.10);
     Color fg = cs.primary;
 
     final lower = t.toLowerCase();
-    if (lower.contains("erro") || lower.contains("falh")) {
+    if (lower.contains('erro') || lower.contains('falh')) {
       bg = AppColors.bad.withOpacity(.12);
       fg = AppColors.bad;
-    } else if (lower.contains("busc") || lower.contains("conect")) {
+    } else if (lower.contains('busc') || lower.contains('conect')) {
       bg = AppColors.warn.withOpacity(.14);
       fg = AppColors.warn;
     }
@@ -363,6 +364,8 @@ class _StatusPill extends StatelessWidget {
   }
 }
 
+// ── Cards da home ─────────────────────────────────────────────────────────────
+
 class _BuddyHeroCard extends StatelessWidget {
   final Map<String, dynamic> emocoes;
   const _BuddyHeroCard({required this.emocoes});
@@ -370,10 +373,9 @@ class _BuddyHeroCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-
     final nome = capitalize(emocoes['nome']?.toString() ?? 'DeskBuddy');
     final dominante = (emocoes['dominante']?.toString().trim().isEmpty ?? true)
-        ? "neutro"
+        ? 'neutro'
         : emocoes['dominante'].toString();
 
     return Container(
@@ -382,31 +384,18 @@ class _BuddyHeroCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(26),
         border: Border.all(color: AppColors.line),
-        boxShadow: const [
-          BoxShadow(
-            blurRadius: 26,
-            offset: Offset(0, 12),
-            color: Color(0x0F000000),
-          )
-        ],
+        boxShadow: const [BoxShadow(blurRadius: 26, offset: Offset(0, 12), color: Color(0x0F000000))],
       ),
       child: Column(
         children: [
           Row(
             children: [
               Expanded(
-                child: Text(
-                  nome,
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-                  overflow: TextOverflow.ellipsis,
-                ),
+                child: Text(nome, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900), overflow: TextOverflow.ellipsis),
               ),
-              const SizedBox(width: 10),
             ],
           ),
           const SizedBox(height: 12),
-
-          // 🔒 NÃO mexer no asset/stack (mantido como está; só reposicionamos/estilizamos o card)
           AspectRatio(
             aspectRatio: 16 / 9,
             child: ClipRRect(
@@ -416,45 +405,29 @@ class _BuddyHeroCard extends StatelessWidget {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    // Imagem de fundo (emoção)
                     Opacity(
                       opacity: .95,
-                      child: Image.asset(
-                        'assets/$dominante.gif',
-                        width: 100,
-                        height: 53,
-                        fit: BoxFit.cover,
-                      ),
+                      child: Image.asset('assets/$dominante.gif', width: 100, height: 53, fit: BoxFit.cover),
                     ),
-                    // Imagem principal do DeskBuddy (stack original)
-                    Image.asset(
-                      'assets/images/DeskBuddyBody.png',
-                      width: double.infinity,
-                      height: double.infinity,
-                      fit: BoxFit.contain,
-                    ),
+                    Image.asset('assets/images/DeskBuddyBody.png', width: double.infinity, height: double.infinity, fit: BoxFit.contain),
                   ],
                 ),
               ),
             ),
           ),
-
           const SizedBox(height: 12),
           Row(
             children: [
-              _MiniInfo(label: "Parceiro", value: emocoes['parceiro']),
+              _MiniInfo(label: 'Parceiro', value: emocoes['parceiro']),
               const SizedBox(width: 10),
               _MiniInfo(
-                label: "Bateria",
+                label: 'Bateria',
                 value: emocoes['bateria_pct'] != null
-                    ? "${emocoes['bateria_pct']}%"
-                    : (emocoes['bateria_v'] != null ? "${emocoes['bateria_v']} V" : null),
+                    ? '${emocoes['bateria_pct']}%'
+                    : (emocoes['bateria_v'] != null ? '${emocoes['bateria_v']} V' : null),
               ),
               const SizedBox(width: 10),
-              _MiniInfo(
-                label: "Estado",
-                value: _sleepingLabel(emocoes['sleeping']),
-              ),
+              _MiniInfo(label: 'Estado', value: _sleepingLabel(emocoes['sleeping'])),
             ],
           ),
         ],
@@ -470,7 +443,7 @@ class _MiniInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final v = (value == null || value.toString().trim().isEmpty) ? "—" : value.toString();
+    final v = (value == null || value.toString().trim().isEmpty) ? '—' : value.toString();
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(10),
@@ -511,12 +484,8 @@ class _DominantEmotionCard extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: cs.primary.withOpacity(.12),
-              borderRadius: BorderRadius.circular(16),
-            ),
+            width: 44, height: 44,
+            decoration: BoxDecoration(color: cs.primary.withOpacity(.12), borderRadius: BorderRadius.circular(16)),
             child: Icon(Icons.mood_rounded, color: cs.primary),
           ),
           const SizedBox(width: 12),
@@ -524,9 +493,8 @@ class _DominantEmotionCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                //Text("Agora", style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w700, fontSize: 12)),
                 SizedBox(height: 2),
-                Text("Status", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                Text('Status', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
               ],
             ),
           ),
@@ -542,10 +510,7 @@ class _DominantEmotionCard extends StatelessWidget {
               children: [
                 Icon(_emotionIcon(dominante), size: 18, color: cs.primary),
                 const SizedBox(width: 8),
-                Text(
-                  capitalize(dominante ?? "—"),
-                  style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900),
-                ),
+                Text(capitalize(dominante ?? '—'), style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900)),
               ],
             ),
           ),
@@ -559,34 +524,22 @@ class _EmotionDistribution extends StatelessWidget {
   final Map<String, dynamic> emocoes;
   final double Function(dynamic) parsePercent;
 
-  const _EmotionDistribution({
-    required this.emocoes,
-    required this.parsePercent,
-  });
+  const _EmotionDistribution({required this.emocoes, required this.parsePercent});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
     const excluded = {
-      'dominante',
-      'encontrados',
-      'nome',
-      'senha',
-      'parceiro',
-      'bateria_pct',
-      'bateria_v',
-      'bateria_low',
-      'ble_app_conectado',
-      'sleeping',
-      'ldr_mv',
+      'dominante', 'encontrados', 'nome', 'senha', 'parceiro',
+      'bateria_pct', 'bateria_v', 'bateria_low', 'ble_app_conectado',
+      'sleeping', 'ldr_mv', 'fw_version',
     };
 
     final items = emocoes.entries
         .where((e) => !excluded.contains(e.key))
         .map((e) => MapEntry(e.key, parsePercent(e.value)))
         .toList();
-
     items.sort((a, b) => b.value.compareTo(a.value));
     final top = items.take(8).toList();
 
@@ -603,36 +556,22 @@ class _EmotionDistribution extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: cs.primary.withOpacity(.12),
-                  borderRadius: BorderRadius.circular(14),
-                ),
+                width: 36, height: 36,
+                decoration: BoxDecoration(color: cs.primary.withOpacity(.12), borderRadius: BorderRadius.circular(14)),
                 child: Icon(Icons.bar_chart_rounded, color: cs.primary, size: 20),
               ),
               const SizedBox(width: 10),
               const Expanded(
-                child: Text(
-                  "Distribuição de emoções",
-                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
-                ),
+                child: Text('Distribuição de emoções', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
               ),
-              Text(
-                "top ${top.length}",
-                style: const TextStyle(color: AppColors.muted, fontWeight: FontWeight.w800),
-              ),
+              Text('top ${top.length}', style: const TextStyle(color: AppColors.muted, fontWeight: FontWeight.w800)),
             ],
           ),
           const SizedBox(height: 12),
-
           if (top.isEmpty)
-            const Text("Sem dados de emoções ainda.", style: TextStyle(color: AppColors.muted))
+            const Text('Sem dados de emoções ainda.', style: TextStyle(color: AppColors.muted))
           else
-            ...top.map((e) => _EmotionBar(
-                  label: e.key,
-              percent: (e.value.clamp(0, 100) as num).toDouble(),
-            )),
+            ...top.map((e) => _EmotionBar(label: e.key, percent: (e.value.clamp(0, 100) as num).toDouble())),
         ],
       ),
     );
@@ -642,7 +581,6 @@ class _EmotionDistribution extends StatelessWidget {
 class _EmotionBar extends StatelessWidget {
   final String label;
   final double percent;
-
   const _EmotionBar({required this.label, required this.percent});
 
   @override
@@ -659,14 +597,8 @@ class _EmotionBar extends StatelessWidget {
             children: [
               Icon(_emotionIcon(label), size: 16, color: cs.primary),
               const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  capitalize(label),
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              Text("${p.toStringAsFixed(0)}%", style: const TextStyle(color: AppColors.muted, fontWeight: FontWeight.w900)),
+              Expanded(child: Text(capitalize(label), style: const TextStyle(fontWeight: FontWeight.w900), overflow: TextOverflow.ellipsis)),
+              Text('${p.toStringAsFixed(0)}%', style: const TextStyle(color: AppColors.muted, fontWeight: FontWeight.w900)),
             ],
           ),
           const SizedBox(height: 6),
@@ -674,7 +606,7 @@ class _EmotionBar extends StatelessWidget {
             borderRadius: BorderRadius.circular(999),
             child: LayoutBuilder(
               builder: (context, c) {
-                final w = c.maxWidth;
+                final w    = c.maxWidth;
                 final fill = (w * (p / 100)).clamp(0.0, w).toDouble();
                 return Stack(
                   children: [
@@ -709,21 +641,13 @@ class _LoadingState extends StatelessWidget {
         padding: const EdgeInsets.all(22),
         child: Container(
           padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: AppColors.line),
-          ),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22), border: Border.all(color: AppColors.line)),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(
-                width: 34,
-                height: 34,
-                child: CircularProgressIndicator(strokeWidth: 3, color: cs.primary),
-              ),
+              SizedBox(width: 34, height: 34, child: CircularProgressIndicator(strokeWidth: 3, color: cs.primary)),
               const SizedBox(height: 14),
-              const Text("Procurando seu DeskBuddy…", style: TextStyle(fontWeight: FontWeight.w900)),
+              const Text('Procurando seu DeskBuddy…', style: TextStyle(fontWeight: FontWeight.w900)),
               const SizedBox(height: 6),
               Text(status, style: const TextStyle(color: AppColors.muted), textAlign: TextAlign.center),
             ],
@@ -739,34 +663,23 @@ class _RetryState extends StatelessWidget {
   final Future<void> Function()? onRetry;
   final VoidCallback onRestart;
 
-  const _RetryState({
-    required this.reloadCount,
-    required this.onRetry,
-    required this.onRestart,
-  });
+  const _RetryState({required this.reloadCount, required this.onRetry, required this.onRestart});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-
     final canRetry = onRetry != null;
-    final title = reloadCount >= 3
-        ? "Não foi possível conectar ao DeskBuddy."
-        : "Não foi possível encontrar seu DeskBuddy.";
+    final title = reloadCount >= 3 ? 'Não foi possível conectar ao DeskBuddy.' : 'Não foi possível encontrar seu DeskBuddy.';
     final subtitle = reloadCount >= 3
-        ? "Feche e reabra o aplicativo para tentar novamente, ou reinicie por aqui."
-        : "Verifique se ele está ligado e perto do celular.";
+        ? 'Feche e reabra o aplicativo para tentar novamente, ou reinicie por aqui.'
+        : 'Verifique se ele está ligado e perto do celular.';
 
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(22),
         child: Container(
           padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: AppColors.line),
-          ),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22), border: Border.all(color: AppColors.line)),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -782,10 +695,9 @@ class _RetryState extends StatelessWidget {
                   child: ElevatedButton.icon(
                     onPressed: () => onRetry!(),
                     icon: const Icon(Icons.refresh_rounded),
-                    label: const Text("Tentar novamente"),
+                    label: const Text('Tentar novamente'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: cs.primary,
-                      foregroundColor: Colors.white,
+                      backgroundColor: cs.primary, foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
                     ),
@@ -797,10 +709,9 @@ class _RetryState extends StatelessWidget {
                   child: ElevatedButton.icon(
                     onPressed: onRestart,
                     icon: const Icon(Icons.restart_alt_rounded),
-                    label: const Text("Reiniciar aplicativo"),
+                    label: const Text('Reiniciar aplicativo'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: cs.primary,
-                      foregroundColor: Colors.white,
+                      backgroundColor: cs.primary, foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
                     ),
@@ -813,18 +724,15 @@ class _RetryState extends StatelessWidget {
     );
   }
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 String _sleepingLabel(dynamic sleeping) {
-  if (sleeping == true || sleeping == 1 || sleeping == "true") {
-    return "Dormindo";
-  }
-  if (sleeping == false || sleeping == 0 || sleeping == "false") {
-    return "Acordado";
-  }
-  return "—";
+  if (sleeping == true  || sleeping == 1 || sleeping == 'true')  return 'Dormindo';
+  if (sleeping == false || sleeping == 0 || sleeping == 'false') return 'Acordado';
+  return '—';
 }
 
-
-// Helpers
 String capitalize(String s) {
   if (s.trim().isEmpty) return s;
   return s[0].toUpperCase() + s.substring(1);
@@ -832,12 +740,12 @@ String capitalize(String s) {
 
 IconData _emotionIcon(String? emotion) {
   final e = (emotion ?? '').toLowerCase();
-  if (e.contains("feliz") || e.contains("happy")) return Icons.sentiment_very_satisfied_rounded;
-  if (e.contains("triste") || e.contains("sad")) return Icons.sentiment_dissatisfied_rounded;
-  if (e.contains("bravo") || e.contains("angry")) return Icons.sentiment_very_dissatisfied_rounded;
-  if (e.contains("apaixonado") || e.contains("love")) return Icons.favorite_rounded;
-  if (e.contains("sono") || e.contains("sleep")) return Icons.bedtime_rounded;
-  if (e.contains("entediado") || e.contains("sleep")) return Icons.sentiment_neutral_rounded;
-  if (e.contains("fome") || e.contains("hunger")) return Icons.restaurant_rounded;
+  if (e.contains('feliz') || e.contains('happy'))       return Icons.sentiment_very_satisfied_rounded;
+  if (e.contains('triste') || e.contains('sad'))        return Icons.sentiment_dissatisfied_rounded;
+  if (e.contains('bravo') || e.contains('angry'))       return Icons.sentiment_very_dissatisfied_rounded;
+  if (e.contains('apaixonado') || e.contains('love'))   return Icons.favorite_rounded;
+  if (e.contains('sono') || e.contains('sleep'))        return Icons.bedtime_rounded;
+  if (e.contains('entediado'))                           return Icons.sentiment_neutral_rounded;
+  if (e.contains('fome') || e.contains('hunger'))       return Icons.restaurant_rounded;
   return Icons.sentiment_satisfied_rounded;
 }
